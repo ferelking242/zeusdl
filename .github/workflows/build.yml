@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,95 +16,195 @@ env:
   PYTHON_VERSION: '3.12'
 
 jobs:
-  build-desktop:
-    name: Build ${{ matrix.artifact }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            artifact: zeusdl-linux-x86_64
-            ext: ''
-          - os: ubuntu-24.04-arm
-            artifact: zeusdl-linux-arm64
-            ext: ''
-          - os: windows-2022
-            artifact: zeusdl-windows-x86_64
-            ext: '.exe'
-          - os: macos-13
-            artifact: zeusdl-macos-x86_64
-            ext: ''
-          - os: macos-14
-            artifact: zeusdl-macos-arm64
-            ext: ''
-
+  build-linux-x86_64:
+    name: Build zeusdl-linux-x86_64
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-
       - name: Install dependencies
         working-directory: zeusdl
         run: |
           pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
           pip install -e .[default]
-
       - name: Generate lazy extractors
         working-directory: zeusdl
         run: python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
-
       - name: Build binary
         working-directory: zeusdl
-        run: >-
-          pyinstaller
-          --onefile
-          --name ${{ matrix.artifact }}
-          --collect-all zeusdl
-          --copy-metadata zeusdl
-          --hidden-import "zeusdl.extractor.lazy_extractors"
-          zeusdl/__main__.py
-
-      - name: Strip binary (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: strip zeusdl/dist/${{ matrix.artifact }}
-
-      - name: Compute SHA256 (Linux/macOS)
-        if: runner.os != 'Windows'
         run: |
-          cd zeusdl/dist
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
-          else
-            shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
-          fi
-
-      - name: Compute SHA256 (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+          pyinstaller --onefile --name zeusdl-linux-x86_64 \
+            --collect-all zeusdl --copy-metadata zeusdl \
+            --hidden-import "zeusdl.extractor.lazy_extractors" \
+            zeusdl/__main__.py
+      - name: Strip and checksum
         run: |
-          $f = "zeusdl/dist/${{ matrix.artifact }}${{ matrix.ext }}"
-          $hash = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
-          "$hash  ${{ matrix.artifact }}${{ matrix.ext }}" | Out-File -Encoding utf8 "zeusdl/dist/${{ matrix.artifact }}${{ matrix.ext }}.sha256"
-
+          strip zeusdl/dist/zeusdl-linux-x86_64
+          cd zeusdl/dist && sha256sum zeusdl-linux-x86_64 > zeusdl-linux-x86_64.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: zeusdl-linux-x86_64
           path: |
-            zeusdl/dist/${{ matrix.artifact }}${{ matrix.ext }}
-            zeusdl/dist/${{ matrix.artifact }}${{ matrix.ext }}.sha256
+            zeusdl/dist/zeusdl-linux-x86_64
+            zeusdl/dist/zeusdl-linux-x86_64.sha256
+          retention-days: 7
+
+  build-linux-arm64:
+    name: Build zeusdl-linux-arm64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        working-directory: zeusdl
+        run: |
+          pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
+          pip install -e .[default]
+      - name: Generate lazy extractors
+        working-directory: zeusdl
+        run: python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
+      - name: Build binary
+        working-directory: zeusdl
+        run: |
+          pyinstaller --onefile --name zeusdl-linux-arm64 \
+            --collect-all zeusdl --copy-metadata zeusdl \
+            --hidden-import "zeusdl.extractor.lazy_extractors" \
+            zeusdl/__main__.py
+      - name: Strip and checksum
+        run: |
+          strip zeusdl/dist/zeusdl-linux-arm64
+          cd zeusdl/dist && sha256sum zeusdl-linux-arm64 > zeusdl-linux-arm64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zeusdl-linux-arm64
+          path: |
+            zeusdl/dist/zeusdl-linux-arm64
+            zeusdl/dist/zeusdl-linux-arm64.sha256
+          retention-days: 7
+
+  build-windows-x86_64:
+    name: Build zeusdl-windows-x86_64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        working-directory: zeusdl
+        run: |
+          pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
+          pip install -e .[default]
+      - name: Generate lazy extractors
+        working-directory: zeusdl
+        run: python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
+      - name: Build binary
+        working-directory: zeusdl
+        run: |
+          pyinstaller --onefile --name zeusdl-windows-x86_64 `
+            --collect-all zeusdl --copy-metadata zeusdl `
+            --hidden-import "zeusdl.extractor.lazy_extractors" `
+            zeusdl/__main__.py
+      - name: Compute SHA256
+        shell: pwsh
+        run: |
+          $f = "zeusdl/dist/zeusdl-windows-x86_64.exe"
+          $hash = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+          "$hash  zeusdl-windows-x86_64.exe" | Out-File -Encoding utf8 "zeusdl/dist/zeusdl-windows-x86_64.exe.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zeusdl-windows-x86_64
+          path: |
+            zeusdl/dist/zeusdl-windows-x86_64.exe
+            zeusdl/dist/zeusdl-windows-x86_64.exe.sha256
+          retention-days: 7
+
+  build-macos-x86_64:
+    name: Build zeusdl-macos-x86_64
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        working-directory: zeusdl
+        run: |
+          pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
+          pip install -e .[default]
+      - name: Generate lazy extractors
+        working-directory: zeusdl
+        run: python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
+      - name: Build binary
+        working-directory: zeusdl
+        run: |
+          pyinstaller --onefile --name zeusdl-macos-x86_64 \
+            --collect-all zeusdl --copy-metadata zeusdl \
+            --hidden-import "zeusdl.extractor.lazy_extractors" \
+            zeusdl/__main__.py
+      - name: Strip and checksum
+        run: |
+          strip zeusdl/dist/zeusdl-macos-x86_64
+          cd zeusdl/dist
+          shasum -a 256 zeusdl-macos-x86_64 > zeusdl-macos-x86_64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zeusdl-macos-x86_64
+          path: |
+            zeusdl/dist/zeusdl-macos-x86_64
+            zeusdl/dist/zeusdl-macos-x86_64.sha256
+          retention-days: 7
+
+  build-macos-arm64:
+    name: Build zeusdl-macos-arm64
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        working-directory: zeusdl
+        run: |
+          pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
+          pip install -e .[default]
+      - name: Generate lazy extractors
+        working-directory: zeusdl
+        run: python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
+      - name: Build binary
+        working-directory: zeusdl
+        run: |
+          pyinstaller --onefile --name zeusdl-macos-arm64 \
+            --collect-all zeusdl --copy-metadata zeusdl \
+            --hidden-import "zeusdl.extractor.lazy_extractors" \
+            zeusdl/__main__.py
+      - name: Strip and checksum
+        run: |
+          strip zeusdl/dist/zeusdl-macos-arm64
+          cd zeusdl/dist
+          shasum -a 256 zeusdl-macos-arm64 > zeusdl-macos-arm64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zeusdl-macos-arm64
+          path: |
+            zeusdl/dist/zeusdl-macos-arm64
+            zeusdl/dist/zeusdl-macos-arm64.sha256
           retention-days: 7
 
   build-android-arm64:
     name: Build zeusdl-android-arm64
     runs-on: ubuntu-22.04
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Build in Alpine aarch64 (musl)
         uses: uraimo/run-on-arch-action@v2
         with:
@@ -117,9 +218,11 @@ jobs:
             pip3 install --break-system-packages pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
             pip3 install --break-system-packages -e .[default]
             python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
-            pyinstaller --onefile --name zeusdl-android-arm64 --collect-all zeusdl --copy-metadata zeusdl --hidden-import "zeusdl.extractor.lazy_extractors" --strip zeusdl/__main__.py
+            pyinstaller --onefile --name zeusdl-android-arm64 \
+              --collect-all zeusdl --copy-metadata zeusdl \
+              --hidden-import "zeusdl.extractor.lazy_extractors" \
+              --strip zeusdl/__main__.py
             sha256sum dist/zeusdl-android-arm64 > dist/zeusdl-android-arm64.sha256
-
       - uses: actions/upload-artifact@v4
         with:
           name: zeusdl-android-arm64
@@ -131,17 +234,25 @@ jobs:
   build-android-x86_64:
     name: Build zeusdl-android-x86_64
     runs-on: ubuntu-22.04
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Build in Alpine x86_64 (musl) via Docker
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
             alpine:3.19 \
-            sh -c "apk add --no-cache python3 py3-pip python3-dev gcc musl-dev binutils patchelf && cd /workspace/zeusdl && pip3 install --break-system-packages pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs && pip3 install --break-system-packages -e .[default] && python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py && pyinstaller --onefile --name zeusdl-android-x86_64 --collect-all zeusdl --copy-metadata zeusdl --hidden-import zeusdl.extractor.lazy_extractors --strip zeusdl/__main__.py && sha256sum dist/zeusdl-android-x86_64 > dist/zeusdl-android-x86_64.sha256"
-
+            sh -c "
+              apk add --no-cache python3 py3-pip python3-dev gcc musl-dev binutils patchelf &&
+              cd /workspace/zeusdl &&
+              pip3 install --break-system-packages pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs &&
+              pip3 install --break-system-packages -e .[default] &&
+              python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py &&
+              pyinstaller --onefile --name zeusdl-android-x86_64 \
+                --collect-all zeusdl --copy-metadata zeusdl \
+                --hidden-import zeusdl.extractor.lazy_extractors \
+                --strip zeusdl/__main__.py &&
+              sha256sum dist/zeusdl-android-x86_64 > dist/zeusdl-android-x86_64.sha256
+            "
       - uses: actions/upload-artifact@v4
         with:
           name: zeusdl-android-x86_64
@@ -152,9 +263,19 @@ jobs:
 
   release:
     name: Publish Release
-    needs: [build-desktop, build-android-arm64, build-android-x86_64]
+    needs:
+      - build-linux-x86_64
+      - build-linux-arm64
+      - build-windows-x86_64
+      - build-macos-x86_64
+      - build-macos-arm64
+      - build-android-arm64
+      - build-android-x86_64
     runs-on: ubuntu-22.04
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) &&
+      !failure() && !cancelled()
     permissions:
       contents: write
 
@@ -182,7 +303,7 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
             echo "tag=nightly-$(date +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-            echo "draft=true" >> "$GITHUB_OUTPUT"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
