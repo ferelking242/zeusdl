@@ -78,78 +78,109 @@ ZeusDL is a feature-rich command-line audio/video downloader with support for [t
 # INSTALLATION
 
 <!-- MANPAGE: BEGIN EXCLUDED SECTION -->
-[![Windows](https://img.shields.io/badge/-Windows_x64-blue.svg?style=for-the-badge&logo=windows)](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL.exe)
-[![Unix](https://img.shields.io/badge/-Linux/BSD-red.svg?style=for-the-badge&logo=linux)](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL)
-[![MacOS](https://img.shields.io/badge/-MacOS-lightblue.svg?style=for-the-badge&logo=apple)](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_macos)
-[![PyPI](https://img.shields.io/badge/-PyPI-blue.svg?logo=pypi&labelColor=555555&style=for-the-badge)](https://pypi.org/project/ZeusDL)
-[![Source Tarball](https://img.shields.io/badge/-Source_tar-green.svg?style=for-the-badge)](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL.tar.gz)
-[![Other variants](https://img.shields.io/badge/-Other-grey.svg?style=for-the-badge)](#release-files)
-[![All versions](https://img.shields.io/badge/-All_Versions-lightgrey.svg?style=for-the-badge)](https://github.com/ZeusDL/ZeusDL/releases)
+[![Windows](https://img.shields.io/badge/-Windows_x64-blue.svg?style=for-the-badge&logo=windows)](https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-windows-x86_64.exe)
+[![Linux x86_64](https://img.shields.io/badge/-Linux_x86__64-red.svg?style=for-the-badge&logo=linux)](https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-linux-x86_64)
+[![Linux arm64](https://img.shields.io/badge/-Linux_arm64-red.svg?style=for-the-badge&logo=linux)](https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-linux-arm64)
+[![macOS Intel](https://img.shields.io/badge/-macOS_Intel-lightblue.svg?style=for-the-badge&logo=apple)](https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-macos-x86_64)
+[![macOS Apple Silicon](https://img.shields.io/badge/-macOS_Apple_Silicon-lightblue.svg?style=for-the-badge&logo=apple)](https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-macos-arm64)
+[![Android arm64](https://img.shields.io/badge/-Android_arm64-green.svg?style=for-the-badge&logo=android)](https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-android-arm64)
+[![All Releases](https://img.shields.io/badge/-All_Releases-lightgrey.svg?style=for-the-badge)](https://github.com/ferelking242/zeusdl/releases)
 <!-- MANPAGE: END EXCLUDED SECTION -->
 
-You can install ZeusDL using [the binaries](#release-files), [pip](https://pypi.org/project/ZeusDL) or one using a third-party package manager. See [the wiki](https://github.com/ZeusDL/ZeusDL/wiki/Installation) for detailed instructions
+You can install ZeusDL using [the pre-built binaries](#release-files) or [pip](https://pypi.org/project/ZeusDL). Binaries are built automatically on every push to `main` and published as GitHub Releases.
 
 
 <!-- MANPAGE: BEGIN EXCLUDED SECTION -->
 ## RELEASE FILES
 
-#### Recommended
+Pre-built standalone binaries are published to the [GitHub Releases page](https://github.com/ferelking242/zeusdl/releases). Each release includes a `version.json` file that external apps can use to check for updates automatically.
 
-File|Description
-:---|:---
-[ZeusDL](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL)|Platform-independent [zipimport](https://docs.python.org/3/library/zipimport.html) binary. Needs Python (recommended for **Linux/BSD**)
-[ZeusDL.exe](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL.exe)|Windows (Win8+) standalone x64 binary (recommended for **Windows**)
-[ZeusDL_macos](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_macos)|Universal MacOS (10.15+) standalone executable (recommended for **MacOS**)
+### Binary naming convention
 
-#### Alternatives
+All binaries follow the pattern `zeusdl-{platform}-{arch}[.exe]`:
 
-File|Description
-:---|:---
-[ZeusDL_linux](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_linux)|Linux (glibc 2.17+) standalone x86_64 binary
-[ZeusDL_linux.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_linux.zip)|Unpackaged Linux (glibc 2.17+) x86_64 executable (no auto-update)
-[ZeusDL_linux_aarch64](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_linux_aarch64)|Linux (glibc 2.17+) standalone aarch64 binary
-[ZeusDL_linux_aarch64.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_linux_aarch64.zip)|Unpackaged Linux (glibc 2.17+) aarch64 executable (no auto-update)
-[ZeusDL_linux_armv7l.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_linux_armv7l.zip)|Unpackaged Linux (glibc 2.31+) armv7l executable (no auto-update)
-[ZeusDL_musllinux](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_musllinux)|Linux (musl 1.2+) standalone x86_64 binary
-[ZeusDL_musllinux.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_musllinux.zip)|Unpackaged Linux (musl 1.2+) x86_64 executable (no auto-update)
-[ZeusDL_musllinux_aarch64](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_musllinux_aarch64)|Linux (musl 1.2+) standalone aarch64 binary
-[ZeusDL_musllinux_aarch64.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_musllinux_aarch64.zip)|Unpackaged Linux (musl 1.2+) aarch64 executable (no auto-update)
-[ZeusDL_x86.exe](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_x86.exe)|Windows (Win8+) standalone x86 (32-bit) binary
-[ZeusDL_win_x86.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_win_x86.zip)|Unpackaged Windows (Win8+) x86 (32-bit) executable (no auto-update)
-[ZeusDL_arm64.exe](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_arm64.exe)|Windows (Win10+) standalone ARM64 binary
-[ZeusDL_win_arm64.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_win_arm64.zip)|Unpackaged Windows (Win10+) ARM64 executable (no auto-update)
-[ZeusDL_win.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_win.zip)|Unpackaged Windows (Win8+) x64 executable (no auto-update)
-[ZeusDL_macos.zip](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL_macos.zip)|Unpackaged MacOS (10.15+) executable (no auto-update)
+| Platform | Architecture | Filename | Notes |
+|----------|-------------|----------|-------|
+| Linux | x86_64 | `zeusdl-linux-x86_64` | glibc 2.17+ |
+| Linux | arm64 | `zeusdl-linux-arm64` | glibc, ubuntu-24.04-arm runner |
+| Windows | x86_64 | `zeusdl-windows-x86_64.exe` | Win8+ standalone |
+| macOS | x86_64 (Intel) | `zeusdl-macos-x86_64` | macOS 12+ Intel |
+| macOS | arm64 (Apple Silicon) | `zeusdl-macos-arm64` | macOS 14+ M1/M2/M3 |
+| Android/Termux | arm64 | `zeusdl-android-arm64` | musl static, Alpine-built |
+| Android/Termux | x86_64 | `zeusdl-android-x86_64` | musl static, Alpine-built |
 
-#### Misc
+### Direct download links (latest release)
 
-File|Description
-:---|:---
-[ZeusDL.tar.gz](https://github.com/ZeusDL/ZeusDL/releases/latest/download/ZeusDL.tar.gz)|Source tarball
-[SHA2-512SUMS](https://github.com/ZeusDL/ZeusDL/releases/latest/download/SHA2-512SUMS)|GNU-style SHA512 sums
-[SHA2-512SUMS.sig](https://github.com/ZeusDL/ZeusDL/releases/latest/download/SHA2-512SUMS.sig)|GPG signature file for SHA512 sums
-[SHA2-256SUMS](https://github.com/ZeusDL/ZeusDL/releases/latest/download/SHA2-256SUMS)|GNU-style SHA256 sums
-[SHA2-256SUMS.sig](https://github.com/ZeusDL/ZeusDL/releases/latest/download/SHA2-256SUMS.sig)|GPG signature file for SHA256 sums
+```bash
+# Linux x86_64
+curl -L https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-linux-x86_64 -o zeusdl
+chmod +x zeusdl
 
-The public key that can be used to verify the GPG signatures is [available here](https://github.com/ZeusDL/ZeusDL/blob/master/public.key)
-Example usage:
+# Linux arm64
+curl -L https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-linux-arm64 -o zeusdl
+chmod +x zeusdl
+
+# macOS Intel
+curl -L https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-macos-x86_64 -o zeusdl
+chmod +x zeusdl
+
+# macOS Apple Silicon
+curl -L https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-macos-arm64 -o zeusdl
+chmod +x zeusdl
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-windows-x86_64.exe -OutFile zeusdl.exe
+
+# Android arm64 (Termux)
+curl -L https://github.com/ferelking242/zeusdl/releases/latest/download/zeusdl-android-arm64 -o zeusdl
+chmod +x zeusdl
 ```
-curl -L https://github.com/ZeusDL/ZeusDL/raw/master/public.key | gpg --import
-gpg --verify SHA2-256SUMS.sig SHA2-256SUMS
-gpg --verify SHA2-512SUMS.sig SHA2-512SUMS
+
+### Auto-update integration (for external apps)
+
+Each release ships a `version.json` file at a stable URL:
+
+```
+https://github.com/ferelking242/zeusdl/releases/latest/download/version.json
+```
+
+Example `version.json`:
+```json
+{
+  "version_tag": "nightly-20260409-abc1234",
+  "commit_hash": "abc1234...",
+  "build_date": "2026-04-09T20:00:00Z",
+  "prerelease": true,
+  "available_architectures": ["linux-x86_64", "linux-arm64", "windows-x86_64", "macos-x86_64", "macos-arm64", "android-arm64", "android-x86_64"],
+  "download_base_url": "https://github.com/ferelking242/zeusdl/releases/download/nightly-20260409-abc1234",
+  "binary_naming": "zeusdl-{arch}",
+  "windows_ext": ".exe"
+}
+```
+
+To download a specific binary for a given architecture:
+```
+{download_base_url}/zeusdl-{arch}          # Linux/macOS/Android
+{download_base_url}/zeusdl-{arch}.exe      # Windows
+```
+
+### Verifying checksums
+
+Each binary ships with a `.sha256` file and a combined `SHA256SUMS.txt`:
+
+```bash
+# Verify a single binary
+sha256sum -c zeusdl-linux-x86_64.sha256
+
+# Verify all binaries at once
+sha256sum -c SHA256SUMS.txt
 ```
 
 #### Licensing
 
-While ZeusDL is licensed under the [Unlicense](LICENSE), many of the release files contain code from other projects with different licenses.
-
-Most notably, the PyInstaller-bundled executables include GPLv3+ licensed code, and as such the combined work is licensed under [GPLv3+](https://www.gnu.org/licenses/gpl-3.0.html).
-
-The zipimport Unix executable (`ZeusDL`) contains [ISC](https://github.com/meriyah/meriyah/blob/main/LICENSE.md) licensed code from [`meriyah`](https://github.com/meriyah/meriyah) and [MIT](https://github.com/davidbonnet/astring/blob/main/LICENSE) licensed code from [`astring`](https://github.com/davidbonnet/astring).
+While ZeusDL is licensed under the [Unlicense](LICENSE), the PyInstaller-bundled executables include GPLv3+ licensed code and as such the combined work is licensed under [GPLv3+](https://www.gnu.org/licenses/gpl-3.0.html).
 
 See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for more details.
-
-The git repository, the source tarball (`ZeusDL.tar.gz`), the PyPI source distribution and the PyPI built distribution (wheel) only contain code licensed under the [Unlicense](LICENSE).
 
 <!-- MANPAGE: END EXCLUDED SECTION -->
 
