@@ -188,24 +188,27 @@ jobs:
           # Add to PATH for subsequent steps
           echo "/Library/Frameworks/Python.framework/Versions/3.12/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies
+      - name: Install dependencies (under Rosetta x86_64)
         working-directory: zeusdl
         run: |
-          $PYTHON_BIN -m pip install --upgrade pip
-          $PYTHON_BIN -m pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
-          $PYTHON_BIN -m pip install -e .[default]
+          # Run pip under Rosetta so extension modules (.so) are compiled for x86_64,
+          # not arm64. This ensures PyInstaller can bundle them into an x86_64 binary.
+          arch -x86_64 $PYTHON_BIN -m pip install --upgrade pip
+          arch -x86_64 $PYTHON_BIN -m pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
+          arch -x86_64 $PYTHON_BIN -m pip install -e .[default]
 
       - name: Generate lazy extractors
         working-directory: zeusdl
-        run: $PYTHON_BIN devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
+        run: arch -x86_64 $PYTHON_BIN devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
 
-      - name: Build binary (x86_64 target)
+      - name: Build binary (x86_64 via Rosetta)
         working-directory: zeusdl
         run: |
-          $PYTHON_BIN -m PyInstaller --onefile --name zeusdl-macos-x86_64 \
+          # Run PyInstaller under Rosetta — no --target-arch needed since the
+          # entire build process runs as x86_64 under Rosetta 2.
+          arch -x86_64 $PYTHON_BIN -m PyInstaller --onefile --name zeusdl-macos-x86_64 \
             --collect-all zeusdl --copy-metadata zeusdl \
             --hidden-import "zeusdl.extractor.lazy_extractors" \
-            --target-arch x86_64 \
             zeusdl/__main__.py
 
       - name: Verify and checksum
