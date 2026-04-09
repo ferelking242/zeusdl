@@ -398,10 +398,24 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            # Treat vX.Y.Z tags as stable, others as nightly
+            if [[ "$TAG" =~ ^v[0-9] ]]; then
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             TAG="nightly-$(date +%Y%m%d)-${GITHUB_SHA::7}"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            # Mark as non-prerelease so /releases/latest works for auto-update.
+            # GitHub docs: prereleases cannot be set as "latest" even with make_latest: true.
+            # The version.json payload has a "nightly": true field for clients that need to distinguish.
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Determine if this is a nightly (non-tag) build
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "nightly=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "nightly=true" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$TAG"                          >> "$GITHUB_OUTPUT"
           echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -441,9 +455,10 @@ jobs:
             "version_tag": "${TAG}",
             "commit_hash": "${COMMIT}",
             "build_date": "${BUILD_DATE}",
-            "prerelease": ${{ steps.meta.outputs.prerelease }},
+            "nightly": ${{ steps.meta.outputs.nightly }},
             "available_architectures": [${ARCHES_LIST}],
             "download_base_url": "https://github.com/${{ github.repository }}/releases/download/${TAG}",
+            "latest_download_base_url": "https://github.com/${{ github.repository }}/releases/latest/download",
             "binary_naming": "zeusdl-{arch}",
             "windows_ext": ".exe"
           }
