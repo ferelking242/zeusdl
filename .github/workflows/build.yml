@@ -128,7 +128,7 @@ jobs:
 
   build-macos-x86_64:
     name: Build zeusdl-macos-x86_64
-    runs-on: macos-13
+    runs-on: macos-12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -150,9 +150,8 @@ jobs:
             --collect-all zeusdl --copy-metadata zeusdl \
             --hidden-import "zeusdl.extractor.lazy_extractors" \
             zeusdl/__main__.py
-      - name: Strip and checksum
+      - name: Checksum
         run: |
-          strip zeusdl/dist/zeusdl-macos-x86_64
           cd zeusdl/dist
           shasum -a 256 zeusdl-macos-x86_64 > zeusdl-macos-x86_64.sha256
       - uses: actions/upload-artifact@v4
@@ -187,9 +186,8 @@ jobs:
             --collect-all zeusdl --copy-metadata zeusdl \
             --hidden-import "zeusdl.extractor.lazy_extractors" \
             zeusdl/__main__.py
-      - name: Strip and checksum
+      - name: Checksum
         run: |
-          strip zeusdl/dist/zeusdl-macos-arm64
           cd zeusdl/dist
           shasum -a 256 zeusdl-macos-arm64 > zeusdl-macos-arm64.sha256
       - uses: actions/upload-artifact@v4
