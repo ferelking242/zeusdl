@@ -162,13 +162,15 @@ jobs:
             zeusdl/dist/zeusdl-windows-x86_64.exe.sha256
           retention-days: 7
 
-  # ── macOS x86_64 (Intel) ────────────────────────────────────────────────
-  # macos-12 is the last supported Intel runner on GitHub Actions.
-  # Do NOT run `strip` on PyInstaller --onefile macOS binaries — strip
-  # removes the embedded Python archive and produces a broken ~200 KB stub.
+  # ── macOS x86_64 (Intel, built via Rosetta on Apple Silicon runner) ─────
+  # We use macos-14 (M1/M2 — fast to allocate) with the x86_64 Python
+  # variant installed via Rosetta 2. PyInstaller's --target-arch x86_64
+  # then produces a native Intel binary. This avoids the Intel runner
+  # queue delays (macos-12 often waits 30-60 min for a runner).
+  # Do NOT run `strip` — it removes the embedded Python archive.
   build-macos-x86_64:
     name: Build zeusdl-macos-x86_64
-    runs-on: macos-12
+    runs-on: macos-14
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -176,7 +178,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
+          architecture: x86_64
 
       - name: Install dependencies
         working-directory: zeusdl
