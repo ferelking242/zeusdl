@@ -162,45 +162,55 @@ jobs:
             zeusdl/dist/zeusdl-windows-x86_64.exe.sha256
           retention-days: 7
 
-  # ── macOS x86_64 (Intel, built via Rosetta on Apple Silicon runner) ─────
-  # We use macos-14 (M1/M2 — fast to allocate) with the x86_64 Python
-  # variant installed via Rosetta 2. PyInstaller's --target-arch x86_64
-  # then produces a native Intel binary. This avoids the Intel runner
-  # queue delays (macos-12 often waits 30-60 min for a runner).
-  # Do NOT run `strip` — it removes the embedded Python archive.
+  # ── macOS x86_64 (Intel, built on Apple Silicon runner via universal2 Python) ──
+  # macos-14 (M1/M2) allocates in seconds. setup-python doesn't offer x86_64
+  # Python on Apple Silicon, so we install the official universal2 pkg from
+  # python.org, which supports both arm64 and x86_64. PyInstaller then uses
+  # --target-arch x86_64 to produce a native Intel binary.
+  # Do NOT run `strip` — it removes the embedded Python archive on macOS.
   build-macos-x86_64:
     name: Build zeusdl-macos-x86_64
     runs-on: macos-14
     continue-on-error: true
+    env:
+      PYTHON_BIN: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          architecture: x86_64
+      - name: Install Python 3.12 universal2 from python.org
+        run: |
+          curl -fsSL -o /tmp/python312.pkg \
+            https://www.python.org/ftp/python/3.12.9/python-3.12.9-macos11.pkg
+          sudo installer -pkg /tmp/python312.pkg -target /
+          echo "Python version: $($PYTHON_BIN --version)"
+          echo "Architecture support: $(file $PYTHON_BIN)"
+          # Add to PATH for subsequent steps
+          echo "/Library/Frameworks/Python.framework/Versions/3.12/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         working-directory: zeusdl
         run: |
-          pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
-          pip install -e .[default]
+          $PYTHON_BIN -m pip install --upgrade pip
+          $PYTHON_BIN -m pip install pyinstaller brotli certifi mutagen pycryptodomex requests urllib3 websockets yt-dlp-ejs
+          $PYTHON_BIN -m pip install -e .[default]
 
       - name: Generate lazy extractors
         working-directory: zeusdl
-        run: python3 devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
+        run: $PYTHON_BIN devscripts/make_lazy_extractors.py zeusdl/extractor/lazy_extractors.py
 
-      - name: Build binary
+      - name: Build binary (x86_64 target)
         working-directory: zeusdl
         run: |
-          pyinstaller --onefile --name zeusdl-macos-x86_64 \
+          $PYTHON_BIN -m PyInstaller --onefile --name zeusdl-macos-x86_64 \
             --collect-all zeusdl --copy-metadata zeusdl \
             --hidden-import "zeusdl.extractor.lazy_extractors" \
             --target-arch x86_64 \
             zeusdl/__main__.py
 
-      - name: Checksum
+      - name: Verify and checksum
         run: |
+          echo "File info: $(file zeusdl/dist/zeusdl-macos-x86_64)"
           cd zeusdl/dist
           shasum -a 256 zeusdl-macos-x86_64 > zeusdl-macos-x86_64.sha256
           echo "Binary size: $(du -sh zeusdl-macos-x86_64 | cut -f1)"
