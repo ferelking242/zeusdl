@@ -2,11 +2,15 @@ name: Build ZeusDL
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+    tags:
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]'
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (YYYY.MM.DD or YYYY.MM.DD.rev)'
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -397,21 +401,20 @@ jobs:
         id: meta
         run: |
           COMMIT="${{ github.sha }}"
-          DATE=$(date -u +"%Y.%m.%d")
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            TAG="${{ inputs.version }}"
           else
-            TAG="$DATE"
+            TAG=$(date -u +"%Y.%m.%d")
           fi
 
-          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
           echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
           echo "prerelease=false" >> "$GITHUB_OUTPUT"
-
-
       - name: Combine checksums
         run: |
           cd release-assets
