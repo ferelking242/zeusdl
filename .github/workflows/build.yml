@@ -473,39 +473,94 @@ jobs:
           TAG="${{ steps.meta.outputs.tag }}"
           DATE="${{ steps.meta.outputs.build_date }}"
           COMMIT="${{ steps.meta.outputs.commit }}"
+          REPO="${{ github.repository }}"
 
-          BODY="## ZeusDL ${TAG}
+          # Generate changelog from commits since the previous tag (or last 20 commits)
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s ([%h](https://github.com/${REPO}/commit/%H))" 2>/dev/null || true)
+          else
+            COMMITS=$(git log --pretty=format:"- %s ([%h](https://github.com/${REPO}/commit/%H))" -20 2>/dev/null || true)
+          fi
 
-          **Build date:** ${DATE}
-          **Commit:** [\`${COMMIT::7}\`](https://github.com/${{ github.repository }}/commit/${COMMIT})
+          # Categorize commits
+          FEAT=$(echo "$COMMITS" | grep -E "^\- feat(\(.*\))?:" | sed 's/- feat[^:]*: /- /' || true)
+          FIX=$(echo "$COMMITS" | grep -E "^\- fix(\(.*\))?:" | sed 's/- fix[^:]*: /- /' || true)
+          CI=$(echo "$COMMITS" | grep -E "^\- ci(\(.*\))?:" | sed 's/- ci[^:]*: /- /' || true)
+          DOCS=$(echo "$COMMITS" | grep -E "^\- docs(\(.*\))?:" | sed 's/- docs[^:]*: /- /' || true)
+          CHORE=$(echo "$COMMITS" | grep -E "^\- (chore|refactor|perf|style|test)(\(.*\))?:" | sed 's/- [^:]*: /- /' || true)
+          OTHER=$(echo "$COMMITS" | grep -vE "^\- (feat|fix|ci|docs|chore|refactor|perf|style|test)(\(.*\))?:" || true)
 
-          ### Available binaries
+          {
+            echo "## ZeusDL ${TAG}"
+            echo ""
+            echo "**Build date:** ${DATE}  "
+            echo "**Commit:** [\`${COMMIT::7}\`](https://github.com/${REPO}/commit/${COMMIT})"
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Changelog"
+            echo ""
+            if [ -n "$FEAT" ]; then
+              echo "### Features"
+              echo "$FEAT"
+              echo ""
+            fi
+            if [ -n "$FIX" ]; then
+              echo "### Bug Fixes"
+              echo "$FIX"
+              echo ""
+            fi
+            if [ -n "$CI" ]; then
+              echo "### CI/CD"
+              echo "$CI"
+              echo ""
+            fi
+            if [ -n "$DOCS" ]; then
+              echo "### Documentation"
+              echo "$DOCS"
+              echo ""
+            fi
+            if [ -n "$CHORE" ]; then
+              echo "### Maintenance"
+              echo "$CHORE"
+              echo ""
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### Other"
+              echo "$OTHER"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "## Available binaries"
+            echo ""
+            echo "| Platform | Architecture | File |"
+            echo "|----------|-------------|------|"
+            echo "| Linux | x86_64 | [\`zeusdl-linux-x86_64\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-linux-x86_64) |"
+            echo "| Linux | arm64 | [\`zeusdl-linux-arm64\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-linux-arm64) |"
+            echo "| Windows | x86_64 | [\`zeusdl-windows-x86_64.exe\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-windows-x86_64.exe) |"
+            echo "| macOS | x86_64 (Intel) | [\`zeusdl-macos-x86_64\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-macos-x86_64) |"
+            echo "| macOS | arm64 (Apple Silicon) | [\`zeusdl-macos-arm64\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-macos-arm64) |"
+            echo "| Android/Termux | arm64 | [\`zeusdl-android-arm64\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-android-arm64) |"
+            echo "| Android/Termux | x86_64 | [\`zeusdl-android-x86_64\`](https://github.com/${REPO}/releases/download/${TAG}/zeusdl-android-x86_64) |"
+            echo ""
+            echo "## Auto-update"
+            echo ""
+            echo "Poll \`version.json\` to detect new releases:"
+            echo "\`\`\`"
+            echo "https://github.com/${REPO}/releases/latest/download/version.json"
+            echo "\`\`\`"
+            echo ""
+            echo "## Verify checksums"
+            echo "\`\`\`bash"
+            echo "sha256sum -c SHA256SUMS.txt"
+            echo "\`\`\`"
+          } > /tmp/release_body.md
 
-          | Platform | Architecture | File |
-          |----------|-------------|------|
-          | Linux | x86_64 | \`zeusdl-linux-x86_64\` |
-          | Linux | arm64 | \`zeusdl-linux-arm64\` |
-          | Windows | x86_64 | \`zeusdl-windows-x86_64.exe\` |
-          | macOS | x86_64 (Intel) | \`zeusdl-macos-x86_64\` |
-          | macOS | arm64 (Apple Silicon) | \`zeusdl-macos-arm64\` |
-          | Android/Termux | arm64 | \`zeusdl-android-arm64\` |
-          | Android/Termux | x86_64 | \`zeusdl-android-x86_64\` |
-
-          ### Auto-update integration
-
-          External apps can poll \`version.json\` to detect updates:
-          \`\`\`
-          https://github.com/${{ github.repository }}/releases/latest/download/version.json
-          \`\`\`
-
-          ### Verify checksums
-          \`\`\`bash
-          sha256sum -c SHA256SUMS.txt
-          \`\`\`"
-
-          # Write to a file to avoid shell escaping issues
-          echo "$BODY" > /tmp/release_body.md
           echo "body_file=/tmp/release_body.md" >> "$GITHUB_OUTPUT"
+          echo "=== Release body preview ==="
+          head -30 /tmp/release_body.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
