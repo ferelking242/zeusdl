@@ -396,31 +396,21 @@ jobs:
       - name: Determine release tag and metadata
         id: meta
         run: |
+          COMMIT="${{ github.sha }}"
+          DATE=$(date -u +"%Y.%m.%d")
+
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
-            # Treat vX.Y.Z tags as stable, others as nightly
-            if [[ "$TAG" =~ ^v[0-9] ]]; then
-              echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            fi
           else
-            TAG="nightly-$(date +%Y%m%d)-${GITHUB_SHA::7}"
-            # Mark as non-prerelease so /releases/latest works for auto-update.
-            # GitHub docs: prereleases cannot be set as "latest" even with make_latest: true.
-            # The version.json payload has a "nightly": true field for clients that need to distinguish.
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            TAG="$DATE"
           fi
-          # Determine if this is a nightly (non-tag) build
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "nightly=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "nightly=true" >> "$GITHUB_OUTPUT"
-          fi
-          echo "tag=$TAG"                          >> "$GITHUB_OUTPUT"
-          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          echo "commit=${GITHUB_SHA}"              >> "$GITHUB_OUTPUT"
-          echo "short_commit=${GITHUB_SHA::7}"     >> "$GITHUB_OUTPUT"
+
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=false" >> "$GITHUB_OUTPUT"
+
 
       - name: Combine checksums
         run: |
