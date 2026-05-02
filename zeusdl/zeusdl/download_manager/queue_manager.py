@@ -7,6 +7,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from .output import OutputFormatter
+from .rate_limiter import GlobalRateLimiter, parse_bandwidth
 from .session import SessionManager
 from .task import DownloadTask, TaskState
 
@@ -57,6 +58,7 @@ class DownloadQueueManager:
         session_file: Optional[str] = None,
         on_update: Optional[Callable[[DownloadTask], None]] = None,
         auth_verbose: bool = False,
+        max_bandwidth: Optional[str] = None,
     ):
         self.max_concurrent = max_concurrent
         self.formatter = output_formatter or OutputFormatter()
@@ -64,6 +66,10 @@ class DownloadQueueManager:
         self.on_update = on_update
         self._guard: Optional[SessionGuard] = (
             SessionGuard(verbose=auth_verbose) if _AUTH_AVAILABLE else None
+        )
+        self._rate_limiter = GlobalRateLimiter(
+            max_bandwidth=max_bandwidth,
+            max_concurrent=max_concurrent,
         )
 
         self._tasks: Dict[str, DownloadTask] = {}
@@ -236,21 +242,67 @@ class DownloadQueueManager:
             print(f"[queue] auth guard error: {exc}", file=sys.stderr)
         return []
 
-    def _build_args(self, task: DownloadTask, auth_flags: Optional[List[str]] = None) -> List[str]:
+    def _build_args(
+        self,
+        task: DownloadTask,
+        auth_flags: Optional[List[str]] = None,
+    ) -> List[str]:
         zeusdl_root = _find_zeusdl_module()
         args = [PYTHON3, "-m", "zeusdl"]
         args += ["--newline", "--no-colors", "--no-warnings"]
         args += ["-f", task.format_spec]
         args += ["-o", os.path.join(task.output_dir, "%(title)s.%(ext)s")]
         args += ["--continue"]
-        if task.limit_rate:
-            args += ["-r", task.limit_rate]
+
+        effective_rate = self._effective_rate(task.limit_rate)
+        if effective_rate:
+            args += ["-r", effective_rate]
+
         args += ["--retries", str(task.retries)]
         if auth_flags:
             args += auth_flags
         args += task.extra_args
         args += ["--", task.url]
         return args
+
+    def _effective_rate(self, task_limit_rate: Optional[str]) -> Optional[str]:
+        """Return the tightest rate limit string combining global and per-task caps.
+
+        The global cap is divided evenly across ``self.max_concurrent`` — the
+        *maximum* configured worker count, not the current active count.  Using
+        the static maximum is the only way to guarantee the ceiling is never
+        exceeded: a worker receives its ``-r`` value once at startup and keeps
+        it for the lifetime of the subprocess, so dynamic rebalancing based on
+        a snapshot active count would let early starters retain a too-large
+        share when new workers join.
+
+        The per-task ``limit_rate`` (if any) is applied independently and
+        further restricts a single worker when it is stricter than the global
+        share.
+        """
+        global_arg = self._rate_limiter.per_task_rate_arg(self.max_concurrent)
+
+        if global_arg is None and task_limit_rate is None:
+            return None
+
+        if global_arg is None:
+            return task_limit_rate
+
+        if task_limit_rate is None:
+            return global_arg
+
+        # Both limits are set — use the lower (stricter) one.
+        try:
+            global_bps = parse_bandwidth(global_arg)
+            task_bps = parse_bandwidth(task_limit_rate)
+            return global_arg if global_bps <= task_bps else task_limit_rate
+        except ValueError:
+            return task_limit_rate
+
+    def _active_download_count(self) -> int:
+        """Return the number of tasks currently in DOWNLOADING state."""
+        with self._lock:
+            return sum(1 for t in self._tasks.values() if t.state == TaskState.DOWNLOADING)
 
     def _run_worker(self, task: DownloadTask) -> None:
         # ── Auth: ensure fresh cookies before starting ─────────────────
