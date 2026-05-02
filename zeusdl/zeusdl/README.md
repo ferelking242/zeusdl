@@ -20,6 +20,101 @@ ZeusDL is a feature-rich command-line audio/video downloader with support for [t
 
 ## What's new in this fork
 
+### BangBros Member Area Extractor (`site-ma.bangbros.com`)
+Full support for the BangBros member area, including studio playlists, model pages, and individual scenes.
+
+```bash
+# Download all scenes from your studio subscription
+zeusdl --cookies ~/bangbros.txt "https://site-ma.bangbros.com/scenes?addon=5971"
+
+# Download a model's full catalogue
+zeusdl --cookies ~/bangbros.txt "https://site-ma.bangbros.com/models/abella-danger"
+
+# Download all your subscribed studios
+zeusdl --cookies ~/bangbros.txt "https://site-ma.bangbros.com/addons"
+
+# Single scene
+zeusdl --cookies ~/bangbros.txt "https://site-ma.bangbros.com/scene/some-scene-slug"
+```
+
+**Authentication:** Log in at https://site-ma.bangbros.com in your browser, then export cookies with
+the "Get cookies.txt LOCALLY" Chrome extension and pass the file with `--cookies`.
+
+### Bulk Download (`download-all`)
+Download every video from any playlist or listing URL — handles pagination automatically.
+
+```bash
+zeusdl download-all "https://site-ma.bangbros.com/scenes?addon=5971" \
+    --cookies ~/bangbros.txt \
+    --output-dir ~/Videos/BangBros \
+    --workers 3 \
+    --format 1080p
+
+# Options:
+#   --output-dir DIR    Where to save videos (default: ./downloads)
+#   --workers N         Concurrent downloads (default: 3)
+#   --cookies FILE      Auth cookies file
+#   --format QUALITY    Quality: best, 1080p, 720p…
+#   --limit N           Stop after N videos (testing)
+#   --no-resume         Re-download already existing files
+#   --sleep SECS        Pause between requests (default: 1.5s)
+```
+
+Download progress is logged to `zeus_download_log.json` in the output folder.
+Interrupted downloads resume automatically on the next run.
+
+### GitHub Push (`github-push`)
+Push any local folder to a GitHub repository (creates the repo if it does not exist).
+
+```bash
+zeusdl github-push \
+    --token ghp_your_personal_access_token \
+    --repo my-bangbros-collection \
+    --dir ~/Videos/BangBros \
+    --private \
+    --chunk 200
+
+# Options:
+#   --token STRING      GitHub PAT with repo scope (required)
+#   --repo NAME         Repository name — created if it doesn't exist (required)
+#   --dir PATH          Local folder to push (default: .)
+#   --owner STRING      GitHub username/org (default: token owner)
+#   --branch STRING     Branch name (default: main)
+#   --private           Make the repo private
+#   --chunk N           Max files per commit (default: 200)
+#   --description TEXT  Repo description
+```
+
+Files are uploaded in chunks of 200 to avoid GitHub tree-size limits.
+Commits are chunked automatically for large collections (30k+ files).
+
+### Telegram Remote Control (`telegram`)
+Control ZeusDL remotely via your Telegram account using a [Telethon](https://github.com/LonamiWebs/Telethon) session string.
+
+```bash
+# Step 1: generate a session string (one-time, interactive)
+zeusdl telegram generate
+
+# Step 2: save credentials
+zeusdl telegram save-session \
+    --session-string "YOUR_SESSION_STRING" \
+    --api-id 12345678 \
+    --api-hash "your_api_hash"
+
+# Step 3: start the listener
+zeusdl telegram start
+
+# Then send messages to yourself in Telegram (Saved Messages):
+#   download https://site-ma.bangbros.com/scenes?addon=5971
+#   status
+#   stop
+```
+
+Install Telegram support:
+```bash
+pip install "zeusdl[telegram]"
+```
+
 ### Scrapling-powered Smart Engine
 ZeusDL now integrates **[Scrapling](https://github.com/D4Vinci/Scrapling)** — a Python scraping library with auto-repair capabilities — directly into its extraction engine.
 

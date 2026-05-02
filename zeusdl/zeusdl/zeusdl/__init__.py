@@ -1130,8 +1130,115 @@ def _real_main(argv=None):
             return 101
 
 
+def _dispatch_subcommand(argv):
+    """
+    Handle ZeusDL subcommands before optparse processing.
+
+    Subcommands:
+        zeusdl download-all URL [options]   — bulk-download all videos from a URL
+        zeusdl github-push [options]        — push a folder to a GitHub repository
+        zeusdl telegram generate            — interactive Telegram session generator
+        zeusdl telegram start [options]     — start Telegram remote-control listener
+        zeusdl telegram save-session        — save session string to disk
+    """
+    if not argv:
+        return False
+
+    cmd = argv[0]
+
+    if cmd == 'download-all':
+        from .bulk_download import main_bulk_download
+        main_bulk_download(argv[1:])
+        return True
+
+    if cmd == 'github-push':
+        from .github_push import main_github_push
+        main_github_push(argv[1:])
+        return True
+
+    if cmd == 'telegram':
+        _dispatch_telegram(argv[1:])
+        return True
+
+    return False
+
+
+def _dispatch_telegram(argv):
+    """Dispatch zeusdl telegram sub-subcommands."""
+    import argparse
+
+    if not argv or argv[0] in ('-h', '--help'):
+        print('Usage: zeusdl telegram <command> [options]')
+        print()
+        print('Commands:')
+        print('  generate                  Interactively generate a Telegram session string')
+        print('  save-session              Save session string + credentials to disk')
+        print('  start                     Connect and start the remote-control listener')
+        print()
+        print('Options for save-session / start:')
+        print('  --session-string STRING   Telethon session string')
+        print('  --api-id INT              Telegram API id (from https://my.telegram.org)')
+        print('  --api-hash STRING         Telegram API hash')
+        sys.exit(0)
+
+    sub = argv[0]
+
+    if sub == 'generate':
+        from .telegram.session_auth import generate_session_interactive
+        generate_session_interactive()
+        return
+
+    p = argparse.ArgumentParser(prog=f'zeusdl telegram {sub}')
+    p.add_argument('--session-string', default=None)
+    p.add_argument('--api-id', type=int, default=None)
+    p.add_argument('--api-hash', default=None)
+    args = p.parse_args(argv[1:])
+
+    if sub == 'save-session':
+        from .telegram.session_auth import save_session
+        if not all([args.session_string, args.api_id, args.api_hash]):
+            print('ERROR: --session-string, --api-id and --api-hash are all required.')
+            sys.exit(1)
+        save_session(args.session_string, args.api_id, args.api_hash)
+        return
+
+    if sub == 'start':
+        from .telegram.session_auth import TelegramSession, get_session
+        if args.session_string and args.api_id and args.api_hash:
+            ts = TelegramSession(args.session_string, args.api_id, args.api_hash)
+        else:
+            cfg = get_session()
+            if not cfg:
+                print('ERROR: No session saved. Run: zeusdl telegram save-session --session-string "…" --api-id … --api-hash …')
+                sys.exit(1)
+            ts = TelegramSession(cfg['session_string'], cfg['api_id'], cfg['api_hash'])
+
+        def _on_command(cmd, args_str):
+            if cmd == 'download':
+                url = args_str.strip()
+                if url:
+                    import subprocess
+                    subprocess.Popen([sys.executable, '-m', 'zeusdl', url])
+                    return f'Download started: {url}'
+                return 'Usage: download <URL>'
+            if cmd == 'status':
+                return 'ZeusDL is running'
+            return f'Unknown command: {cmd}. Try: download <URL> | status | stop'
+
+        ts.run_bot(on_command=_on_command)
+        return
+
+    print(f'Unknown telegram subcommand: {sub}')
+    sys.exit(1)
+
+
 def main(argv=None):
     IN_CLI.value = True
+    if argv is None:
+        argv = sys.argv[1:]
+    # Intercept ZeusDL-specific subcommands before normal optparse processing
+    if _dispatch_subcommand(argv):
+        return
     try:
         _exit(*variadic(_real_main(argv)))
     except (CookieLoadError, DownloadError):

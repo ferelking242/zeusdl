@@ -63,6 +63,9 @@ scrapling-stealth = [
     "scrapling>=0.2.9",
     "playwright>=1.40.0",
 ]
+telegram = [
+    "telethon>=1.36.0",
+]
 secretstorage = [
     "secretstorage",
 ]

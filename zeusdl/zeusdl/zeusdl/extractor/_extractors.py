@@ -66,6 +66,12 @@ from .allstar import (
 )
 from .adult.alphaporno import AlphaPornoIE
 from .adult.bangbros import BangBrosIE
+from .adult.bangbros_ma import (
+    BangBrosMASiteIE,
+    BangBrosMASiteModelIE,
+    BangBrosMASitePlaylistIE,
+    BangBrosMASiteAddonsIE,
+)
 from .adult.brazzers import (
     BrazzersIE,
     BrazzersPlaylistIE,
