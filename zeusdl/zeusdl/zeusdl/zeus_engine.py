@@ -20,6 +20,9 @@ import uuid
 import re
 import time
 import urllib.parse
+import urllib.request
+import urllib.error
+import concurrent.futures
 
 
 def _flush(text):
@@ -93,6 +96,7 @@ def _normalize_format(fmt):
         'format_id': fmt.get('format_id'),
         'language': fmt.get('language'),
         'dynamic_range': fmt.get('dynamic_range'),
+        '_http_headers': fmt.get('http_headers') or {},
     }
     if is_hdr:
         normalized['hdr'] = True
@@ -113,6 +117,7 @@ def _normalize_audio(fmt):
         'format_id': fmt.get('format_id'),
         'language': language,
         'language_preference': fmt.get('language_preference'),
+        '_http_headers': fmt.get('http_headers') or {},
     }
 
 
@@ -127,7 +132,7 @@ def _sort_streams(streams):
 
 
 def _build_structured_info(info, fast=False, task_id=None, quality_filter=None,
-                            include_raw=False):
+                            include_raw=False, skip_url_check=False):
     formats = info.get('formats') or []
     if not formats and info.get('url'):
         formats = [info]
@@ -229,8 +234,19 @@ def _build_structured_info(info, fast=False, task_id=None, quality_filter=None,
             'release_timestamp': info.get('release_timestamp'),
         })
 
-    # Merge combined (video+audio) into streams list
-    all_video = video_streams + combined_streams
+    # Filter dead URLs before returning streams
+    all_video = _filter_dead_streams(video_streams + combined_streams,
+                                     skip_url_check=skip_url_check)
+    audio_streams = _filter_dead_streams(audio_streams,
+                                         skip_url_check=skip_url_check)
+
+    # Strip internal-only headers field before serialization to avoid leaking
+    # cookies/auth tokens/signed tokens into caller-visible JSON output
+    for s in all_video:
+        s.pop('_http_headers', None)
+    for s in audio_streams:
+        s.pop('_http_headers', None)
+
     result['streams'] = all_video
     result['audio'] = audio_streams
     result['subtitles'] = subtitles
@@ -343,8 +359,89 @@ def _url_to_id(url):
     return hashlib.md5(url.encode()).hexdigest()[:12]
 
 
+_URL_CHECK_TIMEOUT = 3
+
+
+def _check_url_alive(url, headers=None):
+    """
+    Perform a HEAD request to verify a URL is reachable.
+
+    Format-level headers (cookies, auth, referer) are forwarded so that CDN
+    and authenticated stream URLs are not incorrectly rejected.
+
+    Returns True  — URL appears alive (2xx/3xx response).
+    Returns True  — on timeout, connection error, or other network failure
+                    (benefit of the doubt; never drop on uncertainty).
+    Returns True  — when the server responds 405 (Method Not Allowed) or 501
+                    (Not Implemented), indicating HEAD is unsupported but the
+                    resource itself exists.
+    Returns False — only when the server explicitly responds 4xx (excl. 405)
+                    or 5xx (excl. 501).
+    Non-HTTP(S) URLs and empty strings are treated as alive without a request.
+    """
+    if not url or not url.startswith(('http://', 'https://')):
+        return True
+    try:
+        req = urllib.request.Request(url, method='HEAD')
+        req.add_header('User-Agent',
+                       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                       'AppleWebKit/537.36 (KHTML, like Gecko) '
+                       'Chrome/120.0.0.0 Safari/537.36')
+        if headers:
+            for k, v in headers.items():
+                try:
+                    req.add_header(str(k), str(v))
+                except Exception:
+                    pass
+        with urllib.request.urlopen(req, timeout=_URL_CHECK_TIMEOUT) as resp:
+            return resp.status < 400
+    except urllib.error.HTTPError as e:
+        # HEAD not supported — resource likely exists, keep the stream
+        if e.code in (405, 501):
+            return True
+        return e.code < 400
+    except Exception:
+        # Timeout, SSL error, connection refused, etc. — keep
+        return True
+
+
+def _filter_dead_streams(streams, skip_url_check=False):
+    """
+    Remove streams whose URLs respond with 4xx or 5xx status codes.
+
+    Checks are run concurrently (up to 8 workers) with a 3-second cap per URL.
+    Format-level HTTP headers stored under the ``_http_headers`` key are
+    forwarded so that authenticated/CDN URLs are validated correctly.
+
+    When a server does not support HEAD (405 Method Not Allowed or 501 Not
+    Implemented), the stream is kept.  Other network/timeout errors are also
+    treated as alive so valid streams are never discarded due to transient
+    connectivity issues.
+
+    If all streams are filtered out the caller is expected to trigger a
+    Scrapling fallback (handled in extract_json).
+
+    Args:
+        streams: list of stream dicts, each expected to have a 'url' key.
+        skip_url_check: if True, returns streams unchanged.
+
+    Returns:
+        Filtered list preserving original order. May be empty if every URL
+        returned a 4xx/5xx response.
+    """
+    if skip_url_check or not streams:
+        return streams
+
+    tasks = [(s.get('url', ''), s.get('_http_headers') or {}) for s in streams]
+    max_workers = min(8, max(1, len(tasks)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        alive_flags = list(executor.map(lambda t: _check_url_alive(*t), tasks))
+
+    return [s for s, alive in zip(streams, alive_flags) if alive]
+
+
 def extract_json(ydl, urls, fast=False, task_id=None, quality_filter=None,
-                 retry_count=2, scrapling_fallback=True):
+                 retry_count=2, scrapling_fallback=True, skip_url_check=False):
     """
     Extract info for each URL and emit JSON lines to stdout.
 
@@ -356,6 +453,7 @@ def extract_json(ydl, urls, fast=False, task_id=None, quality_filter=None,
         quality_filter: e.g. '1080p', '720p'
         retry_count: number of retries on transient errors
         scrapling_fallback: if True, try Scrapling when standard extraction fails
+        skip_url_check: if True, skip HEAD-request validation of stream URLs
     """
     if not task_id:
         task_id = str(uuid.uuid4())[:8]
@@ -406,7 +504,23 @@ def extract_json(ydl, urls, fast=False, task_id=None, quality_filter=None,
                         try:
                             structured = _build_structured_info(
                                 entry, fast=fast, task_id=task_id,
-                                quality_filter=quality_filter)
+                                quality_filter=quality_filter,
+                                skip_url_check=skip_url_check)
+                            # If URL checking dropped all streams for this
+                            # entry, attempt Scrapling recovery per-entry.
+                            had_entry_formats = bool(
+                                entry.get('formats') or entry.get('url'))
+                            entry_url = (entry.get('webpage_url')
+                                         or entry.get('url', ''))
+                            if (not skip_url_check and scrapling_fallback
+                                    and not structured.get('streams')
+                                    and not structured.get('audio')
+                                    and had_entry_formats and entry_url):
+                                scrapling_result = _try_scrapling_fallback(
+                                    entry_url, task_id)
+                                if (scrapling_result
+                                        and scrapling_result.get('streams')):
+                                    structured = scrapling_result
                             results.append(structured)
                         except Exception as e:
                             results.append({
@@ -426,7 +540,19 @@ def extract_json(ydl, urls, fast=False, task_id=None, quality_filter=None,
                 _flush(json.dumps(output))
             else:
                 structured = _build_structured_info(
-                    info, fast=fast, task_id=task_id, quality_filter=quality_filter)
+                    info, fast=fast, task_id=task_id, quality_filter=quality_filter,
+                    skip_url_check=skip_url_check)
+                # If URL checking dropped all streams but the source had formats,
+                # attempt a Scrapling re-extraction to recover a working URL.
+                had_formats = bool(info.get('formats') or info.get('url'))
+                if (not skip_url_check and scrapling_fallback
+                        and not structured.get('streams')
+                        and not structured.get('audio')
+                        and had_formats):
+                    scrapling_result = _try_scrapling_fallback(url, task_id)
+                    if scrapling_result and scrapling_result.get('streams'):
+                        _flush(json.dumps(scrapling_result))
+                        continue
                 _flush(json.dumps(structured))
 
         except Exception as e:

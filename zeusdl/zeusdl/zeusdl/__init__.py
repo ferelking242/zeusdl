@@ -1013,6 +1013,7 @@ def _real_main(argv=None):
         task_id = getattr(opts, 'task_id', None)
         fast_mode = getattr(opts, 'fast_mode', False)
         quality_filter = getattr(opts, 'quality_filter', None)
+        skip_url_check = getattr(opts, 'skip_url_check', False)
         if not all_urls:
             _output_error('No URLs provided', 'NO_URL', task_id)
             return 1
@@ -1021,7 +1022,8 @@ def _real_main(argv=None):
                 extract_json(ydl, all_urls,
                              fast=fast_mode,
                              task_id=task_id,
-                             quality_filter=quality_filter)
+                             quality_filter=quality_filter,
+                             skip_url_check=skip_url_check)
         except Exception as e:
             _output_error(str(e), 'ENGINE_ERROR', task_id)
             return 1

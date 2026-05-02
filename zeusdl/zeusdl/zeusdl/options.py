@@ -2025,6 +2025,12 @@ def create_parser():
         help=(
             'Enable full silent/embed mode: suppresses all output except structured JSON. '
             'Implies --quiet, --no-warnings, and --no-colors'))
+    zeus_engine.add_option(
+        '--skip-url-check',
+        action='store_true', dest='skip_url_check', default=False,
+        help=(
+            'Skip the HEAD-request health check that filters dead stream URLs. '
+            'Use this to speed up extraction when you trust the source URLs are valid'))
 
     parser.add_option_group(general)
     parser.add_option_group(network)
