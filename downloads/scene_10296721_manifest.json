@@ -1,0 +1,64 @@
+{
+  "id": 10296721,
+  "slug": "10296721",
+  "title": "Rewards For The Chores",
+  "scene_url": "https://site-ma.bangbros.com/scene/10296721",
+  "formats": [
+    {
+      "codec": "h264",
+      "label": "720p",
+      "type": "hls",
+      "size_bytes": 1020794203,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/0aba6f5221a172ce52a5d53ec052cc0bf19d489d.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=PQNOuvnuwFZ8bA5Qj3u7HScZ1Hs%3D"
+    },
+    {
+      "codec": "h264",
+      "label": "480p",
+      "type": "hls",
+      "size_bytes": 491490286,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/04aa8705d269e78d8bdb82c1601704240cce7dcd.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=6qIvxvusovGz%2FQNZ%2BadvdBzj6sM%3D"
+    },
+    {
+      "codec": "h264",
+      "label": "320p",
+      "type": "hls",
+      "size_bytes": 258882091,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/1c5c58543e2bc7205fe5d2a9aa0d7bae0c36c738.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=%2BIo4DJbIyF8PX%2B4VMSqUW%2B8pt9I%3D"
+    },
+    {
+      "codec": "av1",
+      "label": "720p",
+      "type": "hls",
+      "size_bytes": 426395096,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/1fb07b3bd2a58b40a2b93545dea5c72f07ea99c3.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=6ig2Q2Nmc4d4GR9weLSUryeOjAU%3D"
+    },
+    {
+      "codec": "av1",
+      "label": "1080p",
+      "type": "hls",
+      "size_bytes": 762603525,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/9a1663771160500e5dd9a907dc3027cd5e41c15a.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=81J%2BIu9oKFSkGk9537gx9P5%2FkQ4%3D"
+    },
+    {
+      "codec": "av1",
+      "label": "2160p",
+      "type": "hls",
+      "size_bytes": 2448458875,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/edcb9ec6ce9275fef9d2852453cc49c9fa27543b.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=OlNd5AP9PTud%2BXuYh2k22Z%2BoEAU%3D"
+    },
+    {
+      "codec": "h264",
+      "label": "1080p",
+      "type": "hls",
+      "size_bytes": 2360358219,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/7950b744631e5e0a45362fc7dbf48e123fe347a8.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=n0gt89BPxUhw1Yn0gPXyS87VhH0%3D"
+    },
+    {
+      "codec": "h264",
+      "label": "2160p",
+      "type": "hls",
+      "size_bytes": 8356746491,
+      "url": "https://stream-private-ht.project1content.com/hls/dbc/c88/595/1d7/40e/db7/d68/d6d/c95/fc5/ab/video/7501d3bfdc8701bd7583d16cc49601437b7dc625.mp4/master.m3u8?validto=1777812242&ip=34.139.153.238&hash=mOjWHX00bMcM4wKiuTNKYKWk5a0%3D"
+    }
+  ]
+}
