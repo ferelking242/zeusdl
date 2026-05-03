@@ -4,9 +4,6 @@ import 'package:flutter/material.dart';
 class AppTheme {
   AppTheme._();
 
-  static const _seedColor = Color(0xFF6B4EFF);
-  static const _secondaryColor = Color(0xFF00C6FF);
-
   static ThemeData light() {
     return FlexThemeData.light(
       scheme: FlexScheme.deepPurple,
@@ -16,7 +13,6 @@ class AppTheme {
         blendOnLevel: 10,
         blendOnColors: false,
         useTextTheme: true,
-        useM2StyleDividerInM3: true,
         alignedDropdown: true,
         useInputDecoratorThemeInDialogs: true,
         cardRadius: 16.0,
@@ -36,15 +32,8 @@ class AppTheme {
         useSecondary: true,
         useTertiary: true,
       ),
-      tones: FlexTones.ultraContrast(Brightness.light),
       visualDensity: FlexColorScheme.comfortablePlatformDensity,
       useMaterial3: true,
-    ).copyWith(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: _seedColor,
-        secondary: _secondaryColor,
-        brightness: Brightness.light,
-      ),
     );
   }
 
@@ -56,7 +45,6 @@ class AppTheme {
       subThemesData: const FlexSubThemesData(
         blendOnLevel: 20,
         useTextTheme: true,
-        useM2StyleDividerInM3: true,
         alignedDropdown: true,
         useInputDecoratorThemeInDialogs: true,
         cardRadius: 16.0,
@@ -76,7 +64,6 @@ class AppTheme {
         useSecondary: true,
         useTertiary: true,
       ),
-      tones: FlexTones.ultraContrast(Brightness.dark),
       visualDensity: FlexColorScheme.comfortablePlatformDensity,
       useMaterial3: true,
     );

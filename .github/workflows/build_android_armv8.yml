@@ -28,20 +28,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter
+      - name: Set up Flutter (stable latest)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.3'
           channel: stable
           cache: true
 
       - name: Flutter pub get
         working-directory: client
         run: flutter pub get
-
-      - name: Generate code (build_runner)
-        working-directory: client
-        run: flutter packages pub run build_runner build --delete-conflicting-outputs
 
       - name: Build APK arm64-v8a
         working-directory: client
@@ -51,13 +46,12 @@ jobs:
             --target-platform android-arm64 \
             --split-per-abi
 
-      - name: Rename APK
+      - name: Rename & stage APK
         working-directory: client
         run: |
           mkdir -p dist
           APK="build/app/outputs/flutter-apk/app-arm64-v8a-${{ github.event.inputs.build_mode }}.apk"
           cp "$APK" "dist/zeus_client-arm64-v8a-${{ github.event.inputs.build_mode }}.apk"
-          echo "APK_PATH=client/dist/zeus_client-arm64-v8a-${{ github.event.inputs.build_mode }}.apk" >> $GITHUB_ENV
           ls -lh dist/
 
       - name: Upload APK artifact
@@ -70,11 +64,9 @@ jobs:
       - name: Build summary
         run: |
           echo "## ✅ Build terminé" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Paramètre | Valeur |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Mode | ${{ github.event.inputs.build_mode }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ABI | arm64-v8a |" >> $GITHUB_STEP_SUMMARY
-          echo "| Flutter | 3.22.3 stable |" >> $GITHUB_STEP_SUMMARY
           SIZE=$(du -sh client/dist/*.apk | cut -f1)
           echo "| Taille APK | $SIZE |" >> $GITHUB_STEP_SUMMARY
