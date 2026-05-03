@@ -169,6 +169,8 @@ class ZeusBot:
             'download':  lambda: self._cmd_download(args, chat_id),
             'push':      lambda: self._cmd_push(args, chat_id),
             'run':       lambda: self._cmd_run(args, chat_id),
+            'getid':     lambda: self._cmd_getid(chat_id),
+            'myid':      lambda: self._cmd_getid(chat_id),
         }
         handler = handlers.get(cmd)
         if not handler:
@@ -176,6 +178,10 @@ class ZeusBot:
         return handler()
 
     # ── Handlers ──────────────────────────────────────────────────────────────
+
+    def _cmd_getid(self, chat_id: int) -> str:
+        """Retourne l'ID du chat courant — utile pour configurer un canal."""
+        return f'ID de ce chat : {chat_id}\nCopie ce nombre et mets-le comme CHANNEL dans Colab.'
 
     def _cmd_status(self) -> str:
         if not self._jobs:

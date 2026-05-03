@@ -127,15 +127,40 @@ class _BangBrosMixin:
     def _get_instance_token(self, video_id):
         if self._instance_token:
             return self._instance_token
-        self._download_webpage(
-            _SITE_URL, video_id,
-            note='Fetching BangBros instance token',
-            errnote='Could not reach site-ma.bangbros.com',
-        )
+
+        # ── 1. Cookies file (exported from browser) ──────────────────────────
+        # Chrome exports instance_token — read it directly, no HTTP needed.
         for cookie in self._downloader.cookiejar:
             if cookie.name == 'instance_token':
                 self._instance_token = cookie.value
                 return cookie.value
+
+        # ── 2. Fallback: fetch the site to trigger cookie set ─────────────────
+        # Only reached when the cookies file doesn't contain instance_token.
+        try:
+            self._download_webpage(
+                _SITE_URL, video_id,
+                note='Fetching BangBros instance token',
+                errnote='Could not reach site-ma.bangbros.com',
+                fatal=False,
+            )
+            for cookie in self._downloader.cookiejar:
+                if cookie.name == 'instance_token':
+                    self._instance_token = cookie.value
+                    return cookie.value
+        except Exception:
+            pass
+
+        # ── 3. Last resort: use access_token_ma as instance token ─────────────
+        access = self._get_cookie('access_token_ma')
+        if access:
+            self.report_warning(
+                'instance_token not found in cookies — using access_token_ma as fallback. '
+                'Re-export cookies from your browser if downloads fail.'
+            )
+            self._instance_token = access
+            return access
+
         return None
 
     def _get_cookie(self, name):
