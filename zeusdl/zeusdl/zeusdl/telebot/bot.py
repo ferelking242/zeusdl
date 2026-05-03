@@ -1,24 +1,20 @@
 """
-ZeusBot — per-user Telegram bot that accepts download commands.
+ZeusBot — bot Telegram per-user pour contrôler ZeusDL à distance.
 
-The user creates their own bot via @BotFather and provides the token.
-This is NOT a centralised bot — every user runs their own instance.
+Chaque utilisateur utilise son propre bot créé via @BotFather.
+Aucun serveur centralisé — le token reste chez toi.
 
-Commands understood by the bot (send them in a chat with the bot):
-    /download <URL>              — queue a download
-    /status                      — show queue status
-    /push telegram <channel_id>  — push last output to a Telegram channel
-    /push github <repo>          — push last output to GitHub
-    /run <script content>        — run a Zeus script inline
-    /set <key> <value>           — set a session variable
-    /help                        — show help
-
-Usage
-─────
-    zeusdl telebot --token 123:ABC start
-
-Requires: pip install pyTelegramBotAPI
-(Optional — falls back to polling via plain urllib if not installed)
+Commandes :
+    /start ou /help     — aide
+    /download <URL>     — lancer un téléchargement
+    /status             — état de la file
+    /agents             — liste des agents Hermes connectés
+    /send <id> <ordre>  — envoyer un ordre à un agent Hermes
+    /broadcast <ordre>  — envoyer un ordre à TOUS les agents
+    /set cle valeur     — définir une variable (quality, workers, output...)
+    /push telegram      — uploader les vidéos vers Telegram
+    /push github        — pousser vers GitHub
+    /run <script>       — exécuter un script Zeus inline
 """
 
 from __future__ import annotations
@@ -31,41 +27,41 @@ import urllib.error
 import urllib.request
 from typing import Callable, Optional
 
-_HELP_TEXT = """
-🤖 *ZeusDL Bot* — Your personal download assistant
-
-Commands:
-  /download <URL> — Download videos from a URL
-  /status         — Show current download status
-  /set key value  — Set a variable (quality, workers, output, …)
-  /run <script>   — Run a Zeus script (inline)
-  /push telegram  — Upload last downloads to Telegram
-  /push github    — Push last downloads to GitHub
-  /help           — Show this help
-
-Examples:
-  /download https://site-ma.bangbros.com/scenes?addon=5971
-  /set quality 1080p
-  /set workers 4
-"""
+_HELP_TEXT = (
+    "ZeusDL Bot @TGBOX_HQbot\n"
+    "\n"
+    "Commandes :\n"
+    "  /download URL       Telecharger des videos\n"
+    "  /status             Etat de la file\n"
+    "  /agents             Agents Hermes connectes\n"
+    "  /send ID ordre      Envoyer un ordre a un agent\n"
+    "  /broadcast ordre    Diffuser a tous les agents\n"
+    "  /set cle valeur     Definir une variable\n"
+    "  /push telegram      Upload vers Telegram\n"
+    "  /push github        Push vers GitHub\n"
+    "  /run script         Executer un script Zeus\n"
+    "  /help               Cette aide\n"
+    "\n"
+    "Exemples :\n"
+    "  /download https://site-ma.bangbros.com/scenes?addon=5971\n"
+    "  /set quality 1080p\n"
+    "  /send colab-1 download https://site-ma.bangbros.com/scenes\n"
+)
 
 
 class ZeusBot:
     """
-    Lightweight Telegram bot (long-polling) for remote ZeusDL control.
-
-    Each user runs their own bot — no centralised server.
+    Bot Telegram long-polling pour le controle distant de ZeusDL.
 
     Parameters
     ----------
     token : str
-        Telegram bot token from @BotFather.
+        Token du bot Telegram (de @BotFather).
     allowed_users : list[int], optional
-        Telegram user IDs allowed to send commands.
-        If empty, accepts commands from any user (not recommended in production).
+        IDs Telegram autorises. Vide = tout le monde.
     on_command : callable, optional
-        ``on_command(cmd: str, args: str, chat_id: int) → str | None``
-        Custom command handler. Return a reply string or None.
+        on_command(cmd, args, chat_id) -> str | None
+        Handler custom. Retourne une reponse ou None pour le handler par defaut.
     """
 
     def __init__(
@@ -86,44 +82,43 @@ class ZeusBot:
 
     # ── Public ────────────────────────────────────────────────────────────────
 
-    def start(self, poll_interval: float = 1.0) -> None:
-        """Start the bot (blocking long-poll loop)."""
-        me = self._api('getMe', {})
+    def start(self, poll_interval: float = 0.5) -> None:
+        """Demarrer le bot (boucle bloquante)."""
+        me = self._api_get('getMe')
         name = me.get('result', {}).get('username', '?')
-        print(f'[ZeusBot] Started as @{name}')
-        print(f'[ZeusBot] Listening for commands…')
+        print(f'[ZeusBot] @{name} demarre — en ecoute...')
         self._running = True
         while self._running:
             try:
                 self._poll()
-                time.sleep(poll_interval)
             except KeyboardInterrupt:
-                print('\n[ZeusBot] Stopped.')
+                print('\n[ZeusBot] Arret.')
                 break
             except Exception as e:
-                print(f'[ZeusBot] Poll error: {e}', file=sys.stderr)
+                print(f'[ZeusBot] Erreur poll: {e}', file=sys.stderr)
                 time.sleep(5)
 
     def stop(self) -> None:
         self._running = False
 
     def send(self, chat_id: int, text: str) -> None:
-        """Send a message to a chat."""
-        self._api('sendMessage', {
+        """Envoyer un message texte brut (sans Markdown) a un chat."""
+        # On utilise du texte brut — pas de parse_mode pour eviter les erreurs silencieuses
+        self._api_post('sendMessage', {
             'chat_id': chat_id,
             'text': text[:4096],
-            'parse_mode': 'Markdown',
         })
 
     # ── Polling ───────────────────────────────────────────────────────────────
 
     def _poll(self) -> None:
-        updates = self._api('getUpdates', {
+        """Long-poll Telegram pour les nouveaux messages."""
+        data = self._api_post('getUpdates', {
             'offset': self._offset,
-            'timeout': 30,
+            'timeout': 25,
             'allowed_updates': ['message'],
         })
-        for update in (updates.get('result') or []):
+        for update in (data.get('result') or []):
             self._offset = update['update_id'] + 1
             msg = update.get('message') or {}
             if msg:
@@ -138,70 +133,75 @@ class ZeusBot:
             return
 
         if self.allowed_users and user_id not in self.allowed_users:
-            self.send(chat_id, '⛔ Unauthorized.')
+            self.send(chat_id, 'Acces refuse.')
             return
 
         if not text.startswith('/'):
-            self.send(chat_id, '❓ Send /help to see available commands.')
+            self.send(chat_id, 'Envoie /help pour voir les commandes disponibles.')
             return
 
+        # Extraire commande et arguments
         parts = text[1:].split(None, 1)
-        cmd = parts[0].lower()
+        cmd = parts[0].lower().split('@')[0]  # ignorer @bot_name si present
         args = parts[1] if len(parts) > 1 else ''
 
-        reply = self._dispatch(cmd, args, chat_id)
-        if reply:
-            self.send(chat_id, reply)
+        print(f'[ZeusBot] /{cmd} {args[:60]} (user={user_id})')
+
+        try:
+            reply = self._dispatch(cmd, args, chat_id)
+            if reply:
+                self.send(chat_id, reply)
+        except Exception as e:
+            self.send(chat_id, f'Erreur : {e}')
 
     def _dispatch(self, cmd: str, args: str, chat_id: int) -> Optional[str]:
+        # Handler custom en priorite (Mastermind, etc.)
         if self.on_command:
             result = self.on_command(cmd, args, chat_id)
             if result is not None:
                 return result
 
         handlers = {
-            'help':     lambda: _HELP_TEXT,
-            'start':    lambda: _HELP_TEXT,
-            'status':   self._cmd_status,
-            'set':      lambda: self._cmd_set(args),
-            'download': lambda: self._cmd_download(args, chat_id),
-            'push':     lambda: self._cmd_push(args, chat_id),
-            'run':      lambda: self._cmd_run(args, chat_id),
+            'help':      lambda: _HELP_TEXT,
+            'start':     lambda: _HELP_TEXT,
+            'status':    self._cmd_status,
+            'set':       lambda: self._cmd_set(args),
+            'download':  lambda: self._cmd_download(args, chat_id),
+            'push':      lambda: self._cmd_push(args, chat_id),
+            'run':       lambda: self._cmd_run(args, chat_id),
         }
         handler = handlers.get(cmd)
         if not handler:
-            return f'❓ Unknown command /{cmd}. Send /help.'
+            return f'Commande inconnue : /{cmd}\nEnvoie /help'
         return handler()
 
-    # ── Command handlers ──────────────────────────────────────────────────────
+    # ── Handlers ──────────────────────────────────────────────────────────────
 
     def _cmd_status(self) -> str:
         if not self._jobs:
-            return '✅ No active downloads. Queue is empty.'
-        lines = ['📋 Download queue:']
+            return 'File vide. Aucun telechargement en cours.'
+        lines = ['File de telechargement :']
         for j in self._jobs[-5:]:
-            status = j.get('status', '?')
-            url = j.get('url', '?')[:60]
-            lines.append(f"  {status} — {url}")
+            lines.append(f"  {j.get('status','?')} - {j.get('url','?')[:60]}")
         return '\n'.join(lines)
 
     def _cmd_set(self, args: str) -> str:
         parts = args.split(None, 1)
         if len(parts) < 2:
-            return '❌ Usage: /set key value'
+            return 'Usage : /set cle valeur\nEx: /set quality 1080p'
         k, v = parts[0].lower(), parts[1]
         self._vars[k] = v
-        return f'✅ Set `{k}` = `{v}`'
+        return f'OK : {k} = {v}'
 
-    def _cmd_download(self, url: str, chat_id: int) -> str:
+    def _cmd_download(self, url: str, chat_id: int) -> Optional[str]:
         if not url:
-            return '❌ Usage: /download <URL>'
-        job = {'url': url, 'status': '⏳ queued', 'chat_id': chat_id}
+            return 'Usage : /download <URL>'
+        job = {'url': url, 'status': 'en attente', 'chat_id': chat_id}
         self._jobs.append(job)
 
         def _run():
-            job['status'] = '⬇️ downloading'
-            self.send(chat_id, f'⬇️ Starting download:\n`{url}`')
+            job['status'] = 'telechargement...'
+            self.send(chat_id, f'Telechargement lance :\n{url}')
             try:
                 from ..bulk_download import BulkDownloader
                 output_dir = self._vars.get('output', './downloads')
@@ -211,19 +211,19 @@ class ZeusBot:
                     workers=int(self._vars.get('workers', '2')),
                 )
                 result = dl.run(url)
-                job['status'] = '✅ done'
+                job['status'] = 'termine'
                 self._last_output = output_dir
                 self.send(chat_id,
-                    f'✅ Download complete!\n'
-                    f'  {result["ok"]} videos downloaded\n'
-                    f'  {result["failed"]} failed\n'
-                    f'  Saved to: `{output_dir}`')
+                    f'Termine !\n'
+                    f'{result["ok"]} videos OK\n'
+                    f'{result["failed"]} echecs\n'
+                    f'Dossier : {output_dir}')
             except Exception as e:
-                job['status'] = '❌ error'
-                self.send(chat_id, f'❌ Download error: {e}')
+                job['status'] = 'erreur'
+                self.send(chat_id, f'Erreur : {e}')
 
         threading.Thread(target=_run, daemon=True).start()
-        return None  # Reply already sent in thread
+        return None  # reponse deja envoyee dans le thread
 
     def _cmd_push(self, args: str, chat_id: int) -> str:
         parts = args.split(None, 1)
@@ -234,46 +234,71 @@ class ZeusBot:
             chan = rest or self._vars.get('telegram_channel', '')
             tok = self._vars.get('telegram_token', self.token)
             if not chan:
-                return '❌ Usage: /push telegram <channel_id>'
+                return 'Usage : /push telegram <channel_id>\nou /set telegram_channel -100xxx'
             source = self._last_output or self._vars.get('output', './downloads')
             from .uploader import TelegramUploader
             uploader = TelegramUploader(bot_token=tok, channel=chan)
             result = uploader.upload_directory(source)
-            return f'✅ Pushed {result["ok"]} videos to Telegram channel `{chan}`'
+            return f'{result["ok"]} videos envoyes vers {chan}'
 
         if target == 'github':
             repo = rest or self._vars.get('github_repo', '')
             token = self._vars.get('github_token', '')
             if not repo or not token:
-                return '❌ Set github_repo and github_token first:\n/set github_token ghp_…\n/set github_repo my-repo'
+                return (
+                    'Configure d\'abord :\n'
+                    '/set github_token ghp_...\n'
+                    '/set github_repo mon-repo'
+                )
             source = self._last_output or self._vars.get('output', './downloads')
             from ..github_push import GithubPusher
-            pusher = GithubPusher(token=token, repo=repo)
-            pusher.push(source)
-            return f'✅ Pushed to GitHub repo `{repo}`'
+            GithubPusher(token=token, repo=repo).push(source)
+            return f'Push GitHub termine : {repo}'
 
-        return '❌ Usage: /push telegram|github'
+        return 'Usage : /push telegram|github'
 
     def _cmd_run(self, script: str, chat_id: int) -> str:
         if not script:
-            return '❌ Usage: /run <zeus script text>'
-        self.send(chat_id, '▶️ Running script…')
+            return 'Usage : /run <script zeus>'
+        self.send(chat_id, 'Execution du script...')
         try:
             from ..zscript.runner import ZeusScriptRunner
-            runner = ZeusScriptRunner(vars=dict(self._vars))
-            runner.run_string(script)
-            return '✅ Script finished.'
+            ZeusScriptRunner(vars=dict(self._vars)).run_string(script)
+            return 'Script termine.'
         except Exception as e:
-            return f'❌ Script error: {e}'
+            return f'Erreur script : {e}'
 
-    # ── HTTP helper ───────────────────────────────────────────────────────────
+    # ── HTTP helpers ──────────────────────────────────────────────────────────
 
-    def _api(self, method: str, data: dict) -> dict:
-        url = f'{self._base}/{method}'
+    def _api_get(self, method: str) -> dict:
+        req = urllib.request.Request(
+            f'{self._base}/{method}',
+            headers={'User-Agent': 'ZeusDL-Bot/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+
+    def _api_post(self, method: str, data: dict) -> dict:
         body = json.dumps(data).encode()
         req = urllib.request.Request(
-            url, data=body,
-            headers={'Content-Type': 'application/json'},
+            f'{self._base}/{method}',
+            data=body,
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'ZeusDL-Bot/1.0',
+            },
         )
-        with urllib.request.urlopen(req, timeout=35) as r:
-            return json.loads(r.read())
+        # Timeout plus long pour le long-poll (timeout=25 dans le payload + marge)
+        timeout = 35 if method == 'getUpdates' else 15
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            raw = e.read()
+            try:
+                err = json.loads(raw)
+            except Exception:
+                err = {'description': raw.decode(errors='replace')}
+            print(f'[ZeusBot] API error {method}: {err.get("description","")}',
+                  file=sys.stderr)
+            return {}
