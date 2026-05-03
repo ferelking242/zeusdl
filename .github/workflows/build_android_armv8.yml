@@ -1,0 +1,80 @@
+name: Build Android ARMv8 (arm64-v8a)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Build mode'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - profile
+          - debug
+
+jobs:
+  build-android-armv8:
+    name: Android arm64-v8a
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.3'
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        working-directory: client
+        run: flutter pub get
+
+      - name: Generate code (build_runner)
+        working-directory: client
+        run: flutter packages pub run build_runner build --delete-conflicting-outputs
+
+      - name: Build APK arm64-v8a
+        working-directory: client
+        run: |
+          flutter build apk \
+            --${{ github.event.inputs.build_mode }} \
+            --target-platform android-arm64 \
+            --split-per-abi
+
+      - name: Rename APK
+        working-directory: client
+        run: |
+          mkdir -p dist
+          APK="build/app/outputs/flutter-apk/app-arm64-v8a-${{ github.event.inputs.build_mode }}.apk"
+          cp "$APK" "dist/zeus_client-arm64-v8a-${{ github.event.inputs.build_mode }}.apk"
+          echo "APK_PATH=client/dist/zeus_client-arm64-v8a-${{ github.event.inputs.build_mode }}.apk" >> $GITHUB_ENV
+          ls -lh dist/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeus_client-arm64-v8a-${{ github.event.inputs.build_mode }}
+          path: client/dist/*.apk
+          retention-days: 30
+
+      - name: Build summary
+        run: |
+          echo "## ✅ Build terminé" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Paramètre | Valeur |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | ${{ github.event.inputs.build_mode }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ABI | arm64-v8a |" >> $GITHUB_STEP_SUMMARY
+          echo "| Flutter | 3.22.3 stable |" >> $GITHUB_STEP_SUMMARY
+          SIZE=$(du -sh client/dist/*.apk | cut -f1)
+          echo "| Taille APK | $SIZE |" >> $GITHUB_STEP_SUMMARY
