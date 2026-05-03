@@ -1,0 +1,46 @@
+// Microsoft Visual C++ generated resource script.
+#pragma code_page(65001)
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,1
+ PRODUCTVERSION 1,0,0,1
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904e4"
+        BEGIN
+            VALUE "CompanyName", "Zeus Team"
+            VALUE "FileDescription", "ZeusDL Client"
+            VALUE "FileVersion", "1.0.0.1"
+            VALUE "InternalName", "zeus_client"
+            VALUE "LegalCopyright", "Copyright (C) 2024 Zeus Team. All rights reserved."
+            VALUE "OriginalFilename", "zeus_client.exe"
+            VALUE "ProductName", "ZeusDL"
+            VALUE "ProductVersion", "1.0.0.1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END

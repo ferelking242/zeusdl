@@ -1,0 +1,74 @@
+name: zeus_client
+description: ZeusDL - Client de téléchargement multi-plateformes
+version: 1.0.0+1
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Navigation
+  go_router: ^14.2.0
+
+  # State management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Network
+  dio: ^5.7.0
+  web_socket_channel: ^3.0.1
+
+  # UI & Animations
+  flutter_animate: ^4.5.0
+  gap: ^3.0.1
+  flex_color_scheme: ^8.0.2
+  shimmer: ^3.0.0
+  lottie: ^3.1.2
+  percent_indicator: ^4.2.3
+  fl_chart: ^0.68.0
+
+  # Data & Storage
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+  shared_preferences: ^2.3.2
+  hive_flutter: ^1.1.0
+
+  # Utils
+  intl: ^0.19.0
+  path_provider: ^2.1.4
+  url_launcher: ^6.3.0
+  package_info_plus: ^8.1.0
+  logger: ^2.4.0
+  uuid: ^4.4.2
+  file_picker: ^8.1.2
+  open_file: ^3.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.12
+  riverpod_generator: ^2.4.3
+  freezed: ^2.5.7
+  json_serializable: ^6.8.0
+  custom_lint: ^0.7.0
+  riverpod_lint: ^2.3.13
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist-Regular.ttf
+        - asset: assets/fonts/Geist-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Geist-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Geist-Bold.ttf
+          weight: 700
