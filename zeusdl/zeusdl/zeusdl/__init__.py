@@ -1135,16 +1135,23 @@ def _dispatch_subcommand(argv):
     Handle ZeusDL subcommands before optparse processing.
 
     Subcommands:
+        zeusdl run <file.zeus>              — execute a Zeus script file
         zeusdl download-all URL [options]   — bulk-download all videos from a URL
         zeusdl github-push [options]        — push a folder to a GitHub repository
         zeusdl telegram generate            — interactive Telegram session generator
         zeusdl telegram start [options]     — start Telegram remote-control listener
         zeusdl telegram save-session        — save session string to disk
+        zeusdl telebot [options]            — per-user Telegram bot
+        zeusdl hermes <subcommand>          — Hermes distributed agent network
     """
     if not argv:
         return False
 
     cmd = argv[0]
+
+    if cmd == 'run':
+        _dispatch_run(argv[1:])
+        return True
 
     if cmd == 'download-all':
         from .bulk_download import main_bulk_download
@@ -1160,7 +1167,108 @@ def _dispatch_subcommand(argv):
         _dispatch_telegram(argv[1:])
         return True
 
+    if cmd == 'telebot':
+        _dispatch_telebot(argv[1:])
+        return True
+
+    if cmd == 'hermes':
+        _dispatch_hermes(argv[1:])
+        return True
+
     return False
+
+
+def _dispatch_run(argv):
+    """Execute a .zeus script file: zeusdl run <file> [--dry-run] [--set key=val]"""
+    import argparse
+    p = argparse.ArgumentParser(
+        prog='zeusdl run',
+        description='Execute a Zeus script (.zeus file).',
+    )
+    p.add_argument('file', help='Path to the .zeus script')
+    p.add_argument('--dry-run', action='store_true',
+                   help='Parse and print commands without executing')
+    p.add_argument('--set', action='append', metavar='KEY=VALUE',
+                   help='Override a script variable (can be repeated)')
+    args = p.parse_args(argv)
+
+    variables = {}
+    for kv in (args.set or []):
+        if '=' in kv:
+            k, v = kv.split('=', 1)
+            variables[k] = v
+
+    from .zscript.runner import ZeusScriptRunner
+    runner = ZeusScriptRunner(vars=variables, dry_run=args.dry_run)
+    runner.run_file(args.file)
+
+
+def _dispatch_telebot(argv):
+    """Dispatch zeusdl telebot subcommands."""
+    import argparse
+    p = argparse.ArgumentParser(
+        prog='zeusdl telebot',
+        description='Per-user Telegram bot for remote ZeusDL control.',
+    )
+    p.add_argument('action', choices=['start', 'upload'],
+                   help='start: run the bot | upload: upload a directory')
+    p.add_argument('--token', required=True, help='Your Telegram bot token')
+    p.add_argument('--channel', default=None, help='Target channel/chat ID')
+    p.add_argument('--dir', default='./downloads', help='Directory to upload')
+    p.add_argument('--allow-user', type=int, action='append', metavar='USER_ID',
+                   help='Allow only these Telegram user IDs (can be repeated)')
+    args = p.parse_args(argv)
+
+    if args.action == 'start':
+        from .telebot.bot import ZeusBot
+        bot = ZeusBot(token=args.token, allowed_users=args.allow_user)
+        bot.start()
+
+    elif args.action == 'upload':
+        if not args.channel:
+            print('ERROR: --channel is required for upload')
+            sys.exit(1)
+        from .telebot.uploader import TelegramUploader
+        up = TelegramUploader(bot_token=args.token, channel=args.channel)
+        up.upload_directory(args.dir)
+
+
+def _dispatch_hermes(argv):
+    """Dispatch zeusdl hermes subcommands."""
+    if not argv or argv[0] in ('-h', '--help'):
+        print('Usage: zeusdl hermes <command> [options]')
+        print()
+        print('Commands:')
+        print('  mastermind   Start the Hermes Mastermind HTTP server')
+        print('  start        Start a Hermes agent on this machine')
+        print('  send         Send an order to a specific agent')
+        print('  status       Show all agents and their queues')
+        print()
+        print('Examples:')
+        print('  zeusdl hermes mastermind --port 8765')
+        print('  zeusdl hermes start --agent-id vps1 --master-url http://1.2.3.4:8765')
+        print('  zeusdl hermes send vps1 "download https://example.com --quality 720p"')
+        print('  zeusdl hermes status --master-url http://1.2.3.4:8765')
+        sys.exit(0)
+
+    sub = argv[0]
+    rest = argv[1:]
+
+    if sub == 'mastermind':
+        from .hermes.mastermind import main_mastermind
+        main_mastermind(rest)
+    elif sub == 'start':
+        from .hermes.agent import main_hermes_start
+        main_hermes_start(rest)
+    elif sub == 'send':
+        from .hermes.agent import main_hermes_send
+        main_hermes_send(rest)
+    elif sub == 'status':
+        from .hermes.agent import main_hermes_status
+        main_hermes_status(rest)
+    else:
+        print(f'Unknown hermes subcommand: {sub}')
+        sys.exit(1)
 
 
 def _dispatch_telegram(argv):

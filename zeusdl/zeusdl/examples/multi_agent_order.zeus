@@ -1,0 +1,51 @@
+# ============================================================
+# Zeus Script: Distribute downloads across Hermes agents
+# Each agent downloads a different quality simultaneously.
+#
+# Prerequisites:
+#   1. Start Mastermind:  zeusdl hermes mastermind --port 8765
+#   2. Start agents on your VPS/machines:
+#        zeusdl hermes start --agent-id vps1 --master-url http://YOUR_IP:8765
+#        zeusdl hermes start --agent-id vps2 --master-url http://YOUR_IP:8765
+#        zeusdl hermes start --agent-id vps3 --master-url http://YOUR_IP:8765
+#   3. Run this script:   zeusdl run multi_agent_order.zeus
+# ============================================================
+
+set studio_url  https://site-ma.bangbros.com/scenes?addon=5971
+set cookies     ~/bangbros_cookies.txt
+
+set telegram_token    YOUR_BOT_TOKEN_HERE
+
+echo Dispatching orders to Hermes agents...
+
+# Agent 1 — 360p, push to Telegram channel A
+hermes vps1 download ${studio_url}
+    quality   360p
+    workers   3
+    cookies   ${cookies}
+    output    /downloads/360p
+    push telegram
+        token    ${telegram_token}
+        channel  -1001111111111
+
+# Agent 2 — 480p, push to Telegram channel B
+hermes vps2 download ${studio_url}
+    quality   480p
+    workers   3
+    cookies   ${cookies}
+    output    /downloads/480p
+    push telegram
+        token    ${telegram_token}
+        channel  -1002222222222
+
+# Agent 3 — 720p, push to GitHub
+hermes vps3 download ${studio_url}
+    quality   720p
+    workers   3
+    cookies   ${cookies}
+    output    /downloads/720p
+    push github
+        token    ${github_token}
+        repo     bangbros-720p
+
+echo All orders dispatched. Agents are running independently.

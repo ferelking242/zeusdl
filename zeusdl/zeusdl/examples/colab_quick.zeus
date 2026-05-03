@@ -1,0 +1,24 @@
+# ============================================================
+# Zeus Script: Google Colab quick-run
+# Copy this into a Colab cell after running the setup notebook.
+# ============================================================
+
+set quality   1080p
+set workers   3
+set output    /content/downloads
+set cookies   /content/bangbros_cookies.txt
+
+set telegram_token    YOUR_BOT_TOKEN
+set telegram_channel  -1001234567890
+
+download https://site-ma.bangbros.com/scenes?addon=5971
+    quality  ${quality}
+    workers  ${workers}
+    cookies  ${cookies}
+    output   ${output}
+
+push telegram
+    token    ${telegram_token}
+    channel  ${telegram_channel}
+    dir      ${output}
+    message  Colab batch done — ${quality}

@@ -1,0 +1,34 @@
+# ============================================================
+# Zeus Script: Download BangBros studio → push to Telegram
+# Usage: zeusdl run bangbros_1080p.zeus
+# ============================================================
+
+# ── Session variables ─────────────────────────────────────
+set quality     1080p
+set workers     4
+set sleep       2.0
+set cookies     ~/bangbros_cookies.txt
+set output      ~/Videos/BangBros/1080p
+
+# Telegram config (your bot, your channel)
+set telegram_token    YOUR_BOT_TOKEN_HERE
+set telegram_channel  -1001234567890
+
+# ── Download ──────────────────────────────────────────────
+echo Starting BangBros 1080p batch download...
+
+download https://site-ma.bangbros.com/scenes?addon=5971
+    quality   ${quality}
+    workers   ${workers}
+    cookies   ${cookies}
+    output    ${output}
+    sleep     ${sleep}
+
+echo Download complete. Uploading to Telegram...
+
+# ── Push to Telegram ──────────────────────────────────────
+push telegram
+    token    ${telegram_token}
+    channel  ${telegram_channel}
+    dir      ${output}
+    message  BangBros 1080p batch — done ✓
