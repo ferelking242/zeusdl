@@ -1175,6 +1175,11 @@ def _dispatch_subcommand(argv):
         _dispatch_hermes(argv[1:])
         return True
 
+    if cmd == 'config':
+        from .config_manager import main_config
+        main_config(argv[1:])
+        return True
+
     return False
 
 
@@ -1266,8 +1271,11 @@ def _dispatch_hermes(argv):
     elif sub == 'status':
         from .hermes.agent import main_hermes_status
         main_hermes_status(rest)
+    elif sub == 'update':
+        from .hermes.updater import main_hermes_update
+        main_hermes_update(rest)
     else:
-        print(f'Unknown hermes subcommand: {sub}')
+        print(f'Unknown hermes subcommand: {sub}. Try: mastermind, start, send, status, update')
         sys.exit(1)
 
 

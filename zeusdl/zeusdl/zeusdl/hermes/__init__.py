@@ -48,5 +48,6 @@ Or in a .zeus script:
 
 from .agent import HermesAgent
 from .mastermind import Mastermind
+from .updater import AgentUpdater
 
-__all__ = ['HermesAgent', 'Mastermind']
+__all__ = ['HermesAgent', 'Mastermind', 'AgentUpdater']

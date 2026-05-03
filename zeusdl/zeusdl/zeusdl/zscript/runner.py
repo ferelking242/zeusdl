@@ -51,7 +51,18 @@ class ZeusScriptRunner:
     """
 
     def __init__(self, vars: Optional[dict] = None, dry_run: bool = False):
-        self._vars: dict[str, str] = {}
+        # Bootstrap from global config
+        from ..config_manager import get_config
+        cfg = get_config()
+        self._vars: dict[str, str] = {
+            'quality':           cfg.get('defaults.quality', 'best'),
+            'workers':           str(cfg.get('defaults.workers', '3')),
+            'sleep':             str(cfg.get('defaults.sleep', '1.5')),
+            'output':            cfg.get('defaults.output_dir', './downloads'),
+            'telegram_token':    cfg.telegram_token,
+            'telegram_channel':  cfg.telegram_channel,
+            'github_token':      cfg.github_token,
+        }
         if vars:
             self._vars.update({k.lower(): str(v) for k, v in vars.items()})
         self.dry_run = dry_run
