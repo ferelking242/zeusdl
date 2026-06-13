@@ -11,7 +11,7 @@ on:
 permissions:
   contents: write
 
-
+jobs:
   # ─── Android arm64-v8a ────────────────────────────────────────────────────────
   build-android-arm64:
     name: Android arm64-v8a (PIE)
@@ -37,10 +37,10 @@ permissions:
           py3.13 -m nuitka --version
 
           # Build Nuitka onefile with PIE (ET_DYN) flags.
-          # Android PackageManager only extracts ET_DYN files from jniLibs/
-          # to nativeLibraryDir. nativeLibraryDir is exec-capable (apk_data_file).
-          # Nuitka extracts Python libs via dlopen() — NOT execve() — so
-          # extraction to cacheDir (app_data_file) is SELinux-allowed.
+          # Android PackageManager only extracts ET_DYN .so from jniLibs/ to nativeLibraryDir.
+          # nativeLibraryDir (apk_data_file SELinux context) is the ONLY exec-capable
+          # location on Android 10+. Nuitka extracts Python libs via dlopen() not
+          # execve() — so extraction to cacheDir (app_data_file) is SELinux-allowed.
           mkdir -p /yt-dlp/dist
 
           CFLAGS="-fPIE" LDFLAGS="-pie" \
@@ -79,7 +79,7 @@ with open('dist/zeusdl-android-arm64', 'rb') as f:
     print(struct.unpack('<H', f.read(2))[0])
 ")
           echo "ELF e_type=${ELF_TYPE} (2=ET_EXEC, 3=ET_DYN)"
-          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN — Android PackageManager rejects this"; exit 1)
+          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN"; exit 1)
           echo "OK — arm64 is PIE (ET_DYN) — ready for Android jniLibs"
 
       - name: Upload artifact
@@ -148,7 +148,7 @@ with open('dist/zeusdl-android-x86_64', 'rb') as f:
     print(struct.unpack('<H', f.read(2))[0])
 ")
           echo "ELF e_type=${ELF_TYPE} (2=ET_EXEC, 3=ET_DYN)"
-          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN — Android PackageManager rejects this"; exit 1)
+          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN"; exit 1)
           echo "OK — x86_64 is PIE (ET_DYN) — ready for Android jniLibs"
 
       - name: Upload artifact
@@ -295,7 +295,7 @@ with open('dist/zeusdl-android-x86_64', 'rb') as f:
 
             ### Android — Binaires 100% Statiques
             Compilés avec **musl Python 3.13 + Nuitka**.
-            Binaires PIE (ET_DYN) — exécution garantie sur Android 10+ via SELinux-safe nativeLibraryDir.
+            Binaires PIE (ET_DYN) — exec garanti via nativeLibraryDir sur Android 10+.
             Compatible Android 5.0+ (API 21+).
 
             | Fichier | Architecture |
