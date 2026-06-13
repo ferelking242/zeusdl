@@ -27,9 +27,9 @@ def main():
         opts.append('--onefile')
 
     name, final_file = exe(onedir)
-    print(f'Building yt-dlp v{version} for {OS_NAME} {platform.machine()} with options {opts}')
+    print(f'Building zeusdl v{version} for {OS_NAME} {platform.machine()} with options {opts}')
     print('Remember to update the version using  "devscripts/update-version.py"')
-    if not os.path.isfile('yt_dlp/extractor/lazy_extractors.py'):
+    if not os.path.isfile('zeusdl/extractor/lazy_extractors.py'):
         print('WARNING: Building without lazy_extractors. Run  '
               '"devscripts/make_lazy_extractors.py"  to build lazy extractors', file=sys.stderr)
     print(f'Destination: {final_file}\n')
@@ -38,13 +38,11 @@ def main():
         f'--name={name}',
         '--icon=devscripts/logo.ico',
         '--upx-exclude=vcruntime140.dll',
-        # Ref: https://github.com/yt-dlp/yt-dlp/issues/13311
-        #      https://github.com/pyinstaller/pyinstaller/issues/9149
         '--exclude-module=pkg_resources',
         '--noconfirm',
-        '--additional-hooks-dir=yt_dlp/__pyinstaller',
+        '--additional-hooks-dir=zeusdl/__pyinstaller',
         *opts,
-        'yt_dlp/__main__.py',
+        'zeusdl/__main__.py',
     ]
 
     print(f'Running PyInstaller with {opts}')
@@ -53,7 +51,6 @@ def main():
 
 
 def parse_options():
-    # Compatibility with older arguments
     opts = sys.argv[1:]
     if opts[0:1] in (['32'], ['64']):
         if ARCH != opts[0]:
@@ -63,14 +60,23 @@ def parse_options():
 
 
 def exe(onedir):
-    """@returns (name, path)"""
+    # Allow EXE_NAME env override for Android/custom builds
+    exe_name_env = os.environ.get('EXE_NAME')
+    if exe_name_env:
+        name = exe_name_env
+        return name, ''.join(filter(None, (
+            'dist/',
+            onedir and f'{name}/',
+            name,
+        )))
+
     platform_name, machine, extension = {
         'win32': (None, MACHINE, '.exe'),
         'darwin': ('macos', None, None),
     }.get(OS_NAME, (OS_NAME, MACHINE, None))
 
     name = '_'.join(filter(None, (
-        'yt-dlp',
+        'zeusdl',
         platform_name,
         machine,
     )))
@@ -106,7 +112,7 @@ def windows_set_version(exe, version):
 
     try:
         from PyInstaller.utils.win32.versioninfo import SetVersion
-    except ImportError:  # Pyinstaller >= 5.8
+    except ImportError:
         from PyInstaller.utils.win32.versioninfo import write_version_info_to_executable as SetVersion
 
     version_list = version_to_list(version)
@@ -124,13 +130,13 @@ def windows_set_version(exe, version):
         ),
         kids=[
             StringFileInfo([StringTable('040904B0', [
-                StringStruct('Comments', f'yt-dlp{suffix} Command Line Interface'),
-                StringStruct('CompanyName', 'https://github.com/yt-dlp'),
-                StringStruct('FileDescription', 'yt-dlp%s' % (MACHINE and f' ({MACHINE})')),
+                StringStruct('Comments', f'zeusdl{suffix} Command Line Interface'),
+                StringStruct('CompanyName', 'https://github.com/ferelking242/zeusdl'),
+                StringStruct('FileDescription', 'zeusdl%s' % (MACHINE and f' ({MACHINE})')),
                 StringStruct('FileVersion', version),
-                StringStruct('InternalName', f'yt-dlp{suffix}'),
-                StringStruct('OriginalFilename', f'yt-dlp{suffix}.exe'),
-                StringStruct('ProductName', f'yt-dlp{suffix}'),
+                StringStruct('InternalName', f'zeusdl{suffix}'),
+                StringStruct('OriginalFilename', f'zeusdl{suffix}.exe'),
+                StringStruct('ProductName', f'zeusdl{suffix}'),
                 StringStruct(
                     'ProductVersion', f'{version}{suffix} on Python {platform.python_version()}'),
             ])]), VarFileInfo([VarStruct('Translation', [0, 1200])]),
