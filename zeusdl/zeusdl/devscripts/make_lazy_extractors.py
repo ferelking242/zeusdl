@@ -57,13 +57,16 @@ def main():
 
 def extra_ie_code(ie, base=None):
     for var in STATIC_CLASS_PROPERTIES:
-        val = getattr(ie, var)
-        if val != (getattr(base, var) if base else NO_ATTR):
+        # Use NO_ATTR default so mixin classes without IE_NAME don't crash
+        val = getattr(ie, var, NO_ATTR)
+        if val != (getattr(base, var, NO_ATTR) if base else NO_ATTR):
             yield f'    {var} = {val!r}'
     yield ''
 
     for name in CLASS_METHODS:
-        f = getattr(ie, name)
+        f = getattr(ie, name, None)
+        if f is None:
+            continue
         if not base or f.__func__ != getattr(base, name).__func__:
             yield getsource(f)
 
