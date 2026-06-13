@@ -28,28 +28,30 @@ jobs:
           #!/bin/bash
           set -ex
 
-          # 1. Build the binary
+          # 1. Build the PyInstaller binary
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          # 2. Access the system pip (same PYTHONPATH trick as build.sh)
+          # 2. Resolve system pip location and EXPORT so all subsequent commands see it
           PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          export PYTHONPATH="$PY_PURELIB"
 
-          # 3. Create a dedicated venv for staticx tooling.
-          #    Using a venv ensures:
-          #      a) pip installs packages to a known site-packages
-          #      b) entry-point scripts (staticx, scons) land in venv/bin/
-          #      c) no --target path confusion
+          # 3. Create a venv (no pip bootstrap — we'll inject via PYTHONPATH)
           py3.13 -m venv /tmp/sx_venv --without-pip
 
-          # 4. Install setuptools + SCons into the venv using the system pip
-          PYTHONPATH="$PY_PURELIB" /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
+          # 4. Install pip itself + setuptools + SCons INTO the venv
+          #    PYTHONPATH gives access to the system pip; the venv Python installs
+          #    them into /tmp/sx_venv/lib/python3.13/site-packages/
+          /tmp/sx_venv/bin/python -m pip install pip setuptools SCons --quiet
+
+          # 5. Now the venv has its own pip. Add venv/bin to PATH so scons is found
+          #    by the staticx build system
           export PATH="/tmp/sx_venv/bin:$PATH"
 
-          # 5. Install staticx + patchelf without build isolation so the
-          #    build backend can see setuptools and SCons already in the venv
-          /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
+          # 6. Install staticx + patchelf; build isolation disabled so the build
+          #    backend sees setuptools + SCons already in the venv
+          /tmp/sx_venv/bin/pip install staticx patchelf --no-build-isolation --quiet
 
-          # 6. Embed musl linker → fully static binary
+          # 7. Embed musl linker → fully static binary
           EXE="/yt-dlp/dist/${EXE_NAME}"
           /tmp/sx_venv/bin/staticx "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
@@ -105,13 +107,15 @@ jobs:
           bash /yt-dlp/bundle/docker/linux/build.sh
 
           PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          export PYTHONPATH="$PY_PURELIB"
 
           py3.13 -m venv /tmp/sx_venv --without-pip
 
-          PYTHONPATH="$PY_PURELIB" /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
+          /tmp/sx_venv/bin/python -m pip install pip setuptools SCons --quiet
+
           export PATH="/tmp/sx_venv/bin:$PATH"
 
-          /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
+          /tmp/sx_venv/bin/pip install staticx patchelf --no-build-isolation --quiet
 
           EXE="/yt-dlp/dist/${EXE_NAME}"
           /tmp/sx_venv/bin/staticx "${EXE}" "${EXE}-static"
