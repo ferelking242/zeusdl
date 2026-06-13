@@ -19,14 +19,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build inside musllinux Docker (aarch64)
+      - name: Build + staticx inside musllinux Docker (aarch64)
         working-directory: zeusdl/zeusdl
         run: |
-          mkdir -p dist
           chmod +x bundle/docker/linux/build.sh
+
+          # Helper script runs INSIDE the musl container
+          # (so ldd speaks musl and staticx works correctly)
+          cat > /tmp/build_and_staticx.sh << 'INNEREOF'
+          #!/bin/bash
+          set -ex
+
+          # 1. Build the binary
+          bash /yt-dlp/bundle/docker/linux/build.sh
+
+          # 2. Prepare pip access (same trick as build.sh)
+          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          export PYTHONPATH="$PY_PURELIB"
+          SXPKG=/tmp/sx_pkg
+          mkdir -p "$SXPKG"
+
+          # 3. Install SCons first (pure Python) and add to PATH
+          #    so the staticx bootloader build can find 'scons'
+          py3.13 -m pip install SCons --target "$SXPKG" --quiet
+          export PATH="$SXPKG/bin:$PATH"
+
+          # 4. Install staticx + patchelf
+          py3.13 -m pip install staticx patchelf --target "$SXPKG" --quiet
+
+          # 5. Make binary truly static (embeds musl linker + deps)
+          EXE="/yt-dlp/dist/${EXE_NAME}"
+          PYTHONPATH="$SXPKG:$PY_PURELIB" "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
+          mv "${EXE}-static" "${EXE}"
+
+          file "${EXE}"
+          ls -lh "${EXE}"
+          INNEREOF
+
+          chmod +x /tmp/build_and_staticx.sh
+
           docker run --rm \
             --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
+            -v "/tmp/build_and_staticx.sh:/build_and_staticx.sh:ro" \
             -e EXE_NAME="zeusdl-android-arm64" \
             -e CHANNEL="stable" \
             -e ORIGIN="ferelking242/zeusdl" \
@@ -34,16 +69,7 @@ jobs:
             -e REQUIREMENTS="musllinux-aarch64" \
             -e SKIP_ONEDIR_BUILD="1" \
             ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
-            bash /yt-dlp/bundle/docker/linux/build.sh
-
-      - name: Apply staticx — embed musl linker → fully static
-        working-directory: zeusdl/zeusdl
-        run: |
-          pip install --quiet "staticx>=0.14.1" patchelf
-          staticx dist/zeusdl-android-arm64 dist/zeusdl-android-arm64-static
-          mv dist/zeusdl-android-arm64-static dist/zeusdl-android-arm64
-          file dist/zeusdl-android-arm64
-          ls -lh dist/zeusdl-android-arm64
+            bash /build_and_staticx.sh
 
       - name: Verify — no dynamic interpreter
         working-directory: zeusdl/zeusdl
@@ -65,14 +91,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build inside musllinux Docker (x86_64)
+      - name: Build + staticx inside musllinux Docker (x86_64)
         working-directory: zeusdl/zeusdl
         run: |
-          mkdir -p dist
           chmod +x bundle/docker/linux/build.sh
+
+          cat > /tmp/build_and_staticx.sh << 'INNEREOF'
+          #!/bin/bash
+          set -ex
+
+          bash /yt-dlp/bundle/docker/linux/build.sh
+
+          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          export PYTHONPATH="$PY_PURELIB"
+          SXPKG=/tmp/sx_pkg
+          mkdir -p "$SXPKG"
+
+          py3.13 -m pip install SCons --target "$SXPKG" --quiet
+          export PATH="$SXPKG/bin:$PATH"
+
+          py3.13 -m pip install staticx patchelf --target "$SXPKG" --quiet
+
+          EXE="/yt-dlp/dist/${EXE_NAME}"
+          PYTHONPATH="$SXPKG:$PY_PURELIB" "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
+          mv "${EXE}-static" "${EXE}"
+
+          file "${EXE}"
+          ls -lh "${EXE}"
+          INNEREOF
+
+          chmod +x /tmp/build_and_staticx.sh
+
           docker run --rm \
             --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
+            -v "/tmp/build_and_staticx.sh:/build_and_staticx.sh:ro" \
             -e EXE_NAME="zeusdl-android-x86_64" \
             -e CHANNEL="stable" \
             -e ORIGIN="ferelking242/zeusdl" \
@@ -80,16 +133,7 @@ jobs:
             -e REQUIREMENTS="musllinux-x86_64" \
             -e SKIP_ONEDIR_BUILD="1" \
             ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
-            bash /yt-dlp/bundle/docker/linux/build.sh
-
-      - name: Apply staticx — embed musl linker → fully static
-        working-directory: zeusdl/zeusdl
-        run: |
-          pip install --quiet "staticx>=0.14.1" patchelf
-          staticx dist/zeusdl-android-x86_64 dist/zeusdl-android-x86_64-static
-          mv dist/zeusdl-android-x86_64-static dist/zeusdl-android-x86_64
-          file dist/zeusdl-android-x86_64
-          ls -lh dist/zeusdl-android-x86_64
+            bash /build_and_staticx.sh
 
       - name: Verify — no dynamic interpreter
         working-directory: zeusdl/zeusdl
