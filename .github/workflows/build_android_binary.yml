@@ -11,65 +11,76 @@ on:
 permissions:
   contents: write
 
-jobs:
+
   # ─── Android arm64-v8a ────────────────────────────────────────────────────────
   build-android-arm64:
-    name: Android arm64-v8a
+    name: Android arm64-v8a (PIE)
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build + staticx inside musllinux Docker (aarch64)
+      - name: Build PIE binary inside musllinux Docker (aarch64 — Nuitka)
         working-directory: zeusdl/zeusdl
         run: |
-          chmod +x bundle/docker/linux/build.sh
-
-          cat > /tmp/build_and_staticx.sh << 'INNEREOF'
+          cat > /tmp/build_nuitka.sh << 'INNEREOF'
           #!/bin/bash
           set -ex
 
-          bash /yt-dlp/bundle/docker/linux/build.sh
+          cd /yt-dlp
 
-          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-          export PYTHONPATH="$PY_PURELIB"
+          # Install zeusdl dependencies
+          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || \
+              py3.13 -m pip install -e "." --quiet
 
-          py3.13 -m venv /tmp/sx_venv --without-pip
-          /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
+          # Install Nuitka and build tools
+          py3.13 -m pip install nuitka ordered-set zstandard --quiet
+          py3.13 -m nuitka --version
 
-          export PATH="/tmp/sx_venv/bin:$PATH"
-          /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
+          # Build Nuitka onefile with PIE (ET_DYN) flags.
+          # Android PackageManager only extracts ET_DYN files from jniLibs/
+          # to nativeLibraryDir. nativeLibraryDir is exec-capable (apk_data_file).
+          # Nuitka extracts Python libs via dlopen() — NOT execve() — so
+          # extraction to cacheDir (app_data_file) is SELinux-allowed.
+          mkdir -p /yt-dlp/dist
 
-          EXE="/yt-dlp/dist/${EXE_NAME}"
-          /tmp/sx_venv/bin/staticx "${EXE}" "${EXE}-static"
-          mv "${EXE}-static" "${EXE}"
+          CFLAGS="-fPIE" LDFLAGS="-pie" \
+          py3.13 -m nuitka \
+              --onefile \
+              --output-dir=/yt-dlp/dist \
+              --output-filename="${EXE_NAME}" \
+              --assume-yes-for-downloads \
+              --lto=yes \
+              --python-flag=no_site \
+              /yt-dlp/zeusdl/__main__.py
 
-          file "${EXE}"
-          ls -lh "${EXE}"
+          file /yt-dlp/dist/${EXE_NAME}
+          ls -lh /yt-dlp/dist/${EXE_NAME}
           INNEREOF
 
-          chmod +x /tmp/build_and_staticx.sh
+          chmod +x /tmp/build_nuitka.sh
 
           docker run --rm \
             --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
-            -v "/tmp/build_and_staticx.sh:/build_and_staticx.sh:ro" \
+            -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
             -e EXE_NAME="zeusdl-android-arm64" \
-            -e CHANNEL="stable" \
-            -e ORIGIN="ferelking242/zeusdl" \
-            -e VERSION="${{ inputs.tag || github.run_number }}" \
-            -e REQUIREMENTS="musllinux-aarch64" \
-            -e SKIP_ONEDIR_BUILD="1" \
             ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
-            bash /build_and_staticx.sh
+            bash /build_nuitka.sh
 
           sudo chmod -R a+r dist/
 
-      - name: Verify — statically linked
+      - name: Verify — PIE (ET_DYN) required for Android jniLibs
         working-directory: zeusdl/zeusdl
         run: |
-          file dist/zeusdl-android-arm64 | grep -q 'statically linked' || \
-            (echo "ERROR: binary is not statically linked" && exit 1)
-          echo "OK — arm64 binary is fully static"
+          ELF_TYPE=$(python3 -c "
+import struct
+with open('dist/zeusdl-android-arm64', 'rb') as f:
+    f.seek(16)
+    print(struct.unpack('<H', f.read(2))[0])
+")
+          echo "ELF e_type=${ELF_TYPE} (2=ET_EXEC, 3=ET_DYN)"
+          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN — Android PackageManager rejects this"; exit 1)
+          echo "OK — arm64 is PIE (ET_DYN) — ready for Android jniLibs"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -79,68 +90,73 @@ jobs:
 
   # ─── Android x86_64 ───────────────────────────────────────────────────────────
   build-android-x86_64:
-    name: Android x86_64
+    name: Android x86_64 (PIE)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build + staticx inside musllinux Docker (x86_64)
+      - name: Build PIE binary inside musllinux Docker (x86_64 — Nuitka)
         working-directory: zeusdl/zeusdl
         run: |
-          chmod +x bundle/docker/linux/build.sh
-
-          cat > /tmp/build_and_staticx.sh << 'INNEREOF'
+          cat > /tmp/build_nuitka.sh << 'INNEREOF'
           #!/bin/bash
           set -ex
 
-          bash /yt-dlp/bundle/docker/linux/build.sh
+          cd /yt-dlp
 
-          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-          export PYTHONPATH="$PY_PURELIB"
+          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || \
+              py3.13 -m pip install -e "." --quiet
 
-          py3.13 -m venv /tmp/sx_venv --without-pip
-          /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
+          py3.13 -m pip install nuitka ordered-set zstandard --quiet
+          py3.13 -m nuitka --version
 
-          export PATH="/tmp/sx_venv/bin:$PATH"
-          /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
+          mkdir -p /yt-dlp/dist
 
-          EXE="/yt-dlp/dist/${EXE_NAME}"
-          /tmp/sx_venv/bin/staticx "${EXE}" "${EXE}-static"
-          mv "${EXE}-static" "${EXE}"
+          CFLAGS="-fPIE" LDFLAGS="-pie" \
+          py3.13 -m nuitka \
+              --onefile \
+              --output-dir=/yt-dlp/dist \
+              --output-filename="${EXE_NAME}" \
+              --assume-yes-for-downloads \
+              --lto=yes \
+              --python-flag=no_site \
+              /yt-dlp/zeusdl/__main__.py
 
-          file "${EXE}"
-          ls -lh "${EXE}"
+          file /yt-dlp/dist/${EXE_NAME}
+          ls -lh /yt-dlp/dist/${EXE_NAME}
           INNEREOF
 
-          chmod +x /tmp/build_and_staticx.sh
+          chmod +x /tmp/build_nuitka.sh
 
           docker run --rm \
             --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
-            -v "/tmp/build_and_staticx.sh:/build_and_staticx.sh:ro" \
+            -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
             -e EXE_NAME="zeusdl-android-x86_64" \
-            -e CHANNEL="stable" \
-            -e ORIGIN="ferelking242/zeusdl" \
-            -e VERSION="${{ inputs.tag || github.run_number }}" \
-            -e REQUIREMENTS="musllinux-x86_64" \
-            -e SKIP_ONEDIR_BUILD="1" \
             ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
-            bash /build_and_staticx.sh
+            bash /build_nuitka.sh
 
           sudo chmod -R a+r dist/
 
-      - name: Verify — statically linked
+      - name: Verify — PIE (ET_DYN) required for Android jniLibs
         working-directory: zeusdl/zeusdl
         run: |
-          file dist/zeusdl-android-x86_64 | grep -q 'statically linked' || \
-            (echo "ERROR: binary is not statically linked" && exit 1)
-          echo "OK — x86_64 binary is fully static"
+          ELF_TYPE=$(python3 -c "
+import struct
+with open('dist/zeusdl-android-x86_64', 'rb') as f:
+    f.seek(16)
+    print(struct.unpack('<H', f.read(2))[0])
+")
+          echo "ELF e_type=${ELF_TYPE} (2=ET_EXEC, 3=ET_DYN)"
+          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN — Android PackageManager rejects this"; exit 1)
+          echo "OK — x86_64 is PIE (ET_DYN) — ready for Android jniLibs"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: zeusdl-android-x86_64
           path: zeusdl/zeusdl/dist/zeusdl-android-x86_64
+
 
   # ─── Linux x64 ────────────────────────────────────────────────────────────────
   build-linux-x64:
@@ -278,8 +294,8 @@ jobs:
             ## ZeusDL — ${{ steps.tag.outputs.tag }}
 
             ### Android — Binaires 100% Statiques
-            Compilés avec **musl Python 3.13 + PyInstaller + staticx**.
-            Le linker musl est embarqué — aucune dépendance externe.
+            Compilés avec **musl Python 3.13 + Nuitka**.
+            Binaires PIE (ET_DYN) — exécution garantie sur Android 10+ via SELinux-safe nativeLibraryDir.
             Compatible Android 5.0+ (API 21+).
 
             | Fichier | Architecture |
