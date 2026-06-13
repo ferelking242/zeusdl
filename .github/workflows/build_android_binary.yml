@@ -31,27 +31,22 @@ jobs:
           # 1. Build the PyInstaller binary
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          # 2. Resolve system pip via sysconfig and EXPORT PYTHONPATH for all
-          #    subsequent commands in this shell session
+          # 2. Export PYTHONPATH so all subsequent commands in this shell see pip
           PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
           export PYTHONPATH="$PY_PURELIB"
 
-          # 3. Create a venv without the default pip bootstrap
+          # 3. Create a venv without pip bootstrap
           py3.13 -m venv /tmp/sx_venv --without-pip
 
-          # 4. Install setuptools + SCons into the venv.
-          #    PYTHONPATH (exported) makes the system pip available.
-          #    pip installs packages into /tmp/sx_venv/lib/python3.13/site-packages/
-          #    but does NOT create a bin/pip script — use "python -m pip" everywhere.
+          # 4. Install setuptools + SCons into the venv via "python -m pip"
+          #    (PYTHONPATH provides pip; installs to venv site-packages)
           /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
 
-          # 5. Add venv/bin to PATH so the scons entry-point script is found
-          #    by the staticx SCons build system
+          # 5. Add venv/bin to PATH so scons entry-point is found by staticx build
           export PATH="/tmp/sx_venv/bin:$PATH"
 
-          # 6. Install staticx + patchelf via "python -m pip" (avoids missing bin/pip).
-          #    --no-build-isolation lets setuptools and SCons (already in venv) be used.
-          #    pip WILL create /tmp/sx_venv/bin/staticx (console_scripts entry point).
+          # 6. Install staticx + patchelf; --no-build-isolation uses setuptools/SCons
+          #    already in the venv. pip creates /tmp/sx_venv/bin/staticx script.
           /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
 
           # 7. Embed musl linker → fully static binary
@@ -78,12 +73,15 @@ jobs:
             ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
             bash /build_and_staticx.sh
 
-      - name: Verify — no dynamic interpreter
+          # Docker runs as root → files are root:root 700. Fix so runner can read them.
+          sudo chmod -R a+r dist/
+
+      - name: Verify — statically linked
         working-directory: zeusdl/zeusdl
         run: |
-          ! strings dist/zeusdl-android-arm64 | grep -q 'ld-musl' || \
-            (echo "ERROR: musl linker still referenced" && exit 1)
-          echo "OK — binary is fully static"
+          file dist/zeusdl-android-arm64 | grep -q 'statically linked' || \
+            (echo "ERROR: binary is not statically linked" && exit 1)
+          echo "OK — arm64 binary is fully static"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -143,12 +141,15 @@ jobs:
             ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
             bash /build_and_staticx.sh
 
-      - name: Verify — no dynamic interpreter
+          # Fix Docker root-owned file permissions
+          sudo chmod -R a+r dist/
+
+      - name: Verify — statically linked
         working-directory: zeusdl/zeusdl
         run: |
-          ! strings dist/zeusdl-android-x86_64 | grep -q 'ld-musl' || \
-            (echo "ERROR: musl linker still referenced" && exit 1)
-          echo "OK — binary is fully static"
+          file dist/zeusdl-android-x86_64 | grep -q 'statically linked' || \
+            (echo "ERROR: binary is not statically linked" && exit 1)
+          echo "OK — x86_64 binary is fully static"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
