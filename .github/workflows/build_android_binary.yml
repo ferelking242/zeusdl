@@ -31,28 +31,27 @@ jobs:
           # 1. Build the binary
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          # 2. Set up pip access (same PYTHONPATH trick as build.sh)
-          SXPKG=/tmp/sx_pkg
-          mkdir -p "$SXPKG"
+          # 2. Access the system pip (same PYTHONPATH trick as build.sh)
           PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-          export PYTHONPATH="$SXPKG:$PY_PURELIB"
 
-          # 3. Install setuptools (needed by --no-build-isolation) + SCons (for staticx bootloader build)
-          py3.13 -m pip install setuptools SCons --target "$SXPKG" --quiet
-          export PATH="$SXPKG/bin:$PATH"
+          # 3. Create a dedicated venv for staticx tooling.
+          #    Using a venv ensures:
+          #      a) pip installs packages to a known site-packages
+          #      b) entry-point scripts (staticx, scons) land in venv/bin/
+          #      c) no --target path confusion
+          py3.13 -m venv /tmp/sx_venv --without-pip
 
-          # 4. scons wrapper: hard-codes PYTHONPATH so even pip's sub-subprocess can find SCons
-          printf '#!/bin/sh\nexec env "PYTHONPATH=/tmp/sx_pkg:%s" py3.13 /tmp/sx_pkg/bin/scons "$@"\n' "$PY_PURELIB" > /usr/local/bin/scons
-          chmod +x /usr/local/bin/scons
-          export PATH="/usr/local/bin:$PATH"
+          # 4. Install setuptools + SCons into the venv using the system pip
+          PYTHONPATH="$PY_PURELIB" /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
+          export PATH="/tmp/sx_venv/bin:$PATH"
 
-          # 5. Install staticx without build isolation (sees our setuptools + SCons)
-          py3.13 -m pip install staticx patchelf --target "$SXPKG" --no-build-isolation --quiet
+          # 5. Install staticx + patchelf without build isolation so the
+          #    build backend can see setuptools and SCons already in the venv
+          /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
 
-          # 6. Run staticx via Python -c to avoid --target bin/ placement issues.
-          #    py3.13 -c "code" src dst  → sys.argv = ['-c', src, dst] → argparse reads [src, dst]
+          # 6. Embed musl linker → fully static binary
           EXE="/yt-dlp/dist/${EXE_NAME}"
-          PYTHONPATH="$SXPKG:$PY_PURELIB" py3.13 -c "from staticx.cmd import main; main()" "${EXE}" "${EXE}-static"
+          /tmp/sx_venv/bin/staticx "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
 
           file "${EXE}"
@@ -105,22 +104,17 @@ jobs:
 
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          SXPKG=/tmp/sx_pkg
-          mkdir -p "$SXPKG"
           PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-          export PYTHONPATH="$SXPKG:$PY_PURELIB"
 
-          py3.13 -m pip install setuptools SCons --target "$SXPKG" --quiet
-          export PATH="$SXPKG/bin:$PATH"
+          py3.13 -m venv /tmp/sx_venv --without-pip
 
-          printf '#!/bin/sh\nexec env "PYTHONPATH=/tmp/sx_pkg:%s" py3.13 /tmp/sx_pkg/bin/scons "$@"\n' "$PY_PURELIB" > /usr/local/bin/scons
-          chmod +x /usr/local/bin/scons
-          export PATH="/usr/local/bin:$PATH"
+          PYTHONPATH="$PY_PURELIB" /tmp/sx_venv/bin/python -m pip install setuptools SCons --quiet
+          export PATH="/tmp/sx_venv/bin:$PATH"
 
-          py3.13 -m pip install staticx patchelf --target "$SXPKG" --no-build-isolation --quiet
+          /tmp/sx_venv/bin/python -m pip install staticx patchelf --no-build-isolation --quiet
 
           EXE="/yt-dlp/dist/${EXE_NAME}"
-          PYTHONPATH="$SXPKG:$PY_PURELIB" py3.13 -c "from staticx.cmd import main; main()" "${EXE}" "${EXE}-static"
+          /tmp/sx_venv/bin/staticx "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
 
           file "${EXE}"
