@@ -25,7 +25,7 @@ jobs:
           chmod +x bundle/docker/linux/build.sh
 
           # Helper script runs INSIDE the musl container
-          # (so ldd speaks musl and staticx works correctly)
+          # (ldd speaks musl there → staticx can process musl binaries correctly)
           cat > /tmp/build_and_staticx.sh << 'INNEREOF'
           #!/bin/bash
           set -ex
@@ -33,23 +33,25 @@ jobs:
           # 1. Build the binary
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          # 2. Prepare pip access (same trick as build.sh)
-          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-          export PYTHONPATH="$PY_PURELIB"
+          # 2. Set up pip access (same trick as build.sh)
           SXPKG=/tmp/sx_pkg
           mkdir -p "$SXPKG"
+          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 
-          # 3. Install SCons first (pure Python) and add to PATH
-          #    so the staticx bootloader build can find 'scons'
+          # *** CRITICAL: export PYTHONPATH including SXPKG BEFORE installing SCons
+          # so that when staticx calls the 'scons' subprocess, it can import SCons
+          export PYTHONPATH="$SXPKG:$PY_PURELIB"
+
+          # 3. Install SCons (pure Python) + add its script to PATH
           py3.13 -m pip install SCons --target "$SXPKG" --quiet
           export PATH="$SXPKG/bin:$PATH"
 
-          # 4. Install staticx + patchelf
+          # 4. Install staticx + patchelf (staticx bootloader build uses scons via PATH)
           py3.13 -m pip install staticx patchelf --target "$SXPKG" --quiet
 
-          # 5. Make binary truly static (embeds musl linker + deps)
+          # 5. Embed musl linker into the binary → truly static
           EXE="/yt-dlp/dist/${EXE_NAME}"
-          PYTHONPATH="$SXPKG:$PY_PURELIB" "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
+          "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
 
           file "${EXE}"
@@ -102,10 +104,12 @@ jobs:
 
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-          export PYTHONPATH="$PY_PURELIB"
           SXPKG=/tmp/sx_pkg
           mkdir -p "$SXPKG"
+          PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+
+          # *** CRITICAL: PYTHONPATH must include SXPKG before SCons install
+          export PYTHONPATH="$SXPKG:$PY_PURELIB"
 
           py3.13 -m pip install SCons --target "$SXPKG" --quiet
           export PATH="$SXPKG/bin:$PATH"
@@ -113,7 +117,7 @@ jobs:
           py3.13 -m pip install staticx patchelf --target "$SXPKG" --quiet
 
           EXE="/yt-dlp/dist/${EXE_NAME}"
-          PYTHONPATH="$SXPKG:$PY_PURELIB" "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
+          "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
 
           file "${EXE}"
