@@ -31,36 +31,28 @@ jobs:
           # 1. Build the binary
           bash /yt-dlp/bundle/docker/linux/build.sh
 
-          # 2. Set up a target dir for staticx tooling
+          # 2. Set up pip access (same PYTHONPATH trick as build.sh)
           SXPKG=/tmp/sx_pkg
           mkdir -p "$SXPKG"
           PY_PURELIB="$(py3.13 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-
-          # Set PYTHONPATH early so every subsequent subprocess can find our packages
           export PYTHONPATH="$SXPKG:$PY_PURELIB"
 
-          # 3. Install setuptools (needed by --no-build-isolation) + SCons
-          #    setuptools is NOT in the musllinux container by default
+          # 3. Install setuptools (needed by --no-build-isolation) + SCons (for staticx bootloader build)
           py3.13 -m pip install setuptools SCons --target "$SXPKG" --quiet
           export PATH="$SXPKG/bin:$PATH"
 
-          # 4. Create a /usr/local/bin/scons wrapper that hard-codes PYTHONPATH
-          #    (belt-and-suspenders: some pip subprocesses strip environment vars)
-          printf '#!/bin/sh\nexec env "PYTHONPATH=/tmp/sx_pkg:%s" py3.13 /tmp/sx_pkg/bin/scons "$@"\n' \
-            "$PY_PURELIB" > /usr/local/bin/scons
+          # 4. scons wrapper: hard-codes PYTHONPATH so even pip's sub-subprocess can find SCons
+          printf '#!/bin/sh\nexec env "PYTHONPATH=/tmp/sx_pkg:%s" py3.13 /tmp/sx_pkg/bin/scons "$@"\n' "$PY_PURELIB" > /usr/local/bin/scons
           chmod +x /usr/local/bin/scons
           export PATH="/usr/local/bin:$PATH"
 
-          # 5. Install staticx + patchelf with --no-build-isolation so the build
-          #    backend runs inside our current env (where setuptools + SCons live)
-          py3.13 -m pip install staticx patchelf \
-            --target "$SXPKG" \
-            --no-build-isolation \
-            --quiet
+          # 5. Install staticx without build isolation (sees our setuptools + SCons)
+          py3.13 -m pip install staticx patchelf --target "$SXPKG" --no-build-isolation --quiet
 
-          # 6. Embed musl linker into the binary → fully static, no external deps
+          # 6. Run staticx via Python -c to avoid --target bin/ placement issues.
+          #    py3.13 -c "code" src dst  → sys.argv = ['-c', src, dst] → argparse reads [src, dst]
           EXE="/yt-dlp/dist/${EXE_NAME}"
-          PYTHONPATH="$SXPKG:$PY_PURELIB" "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
+          PYTHONPATH="$SXPKG:$PY_PURELIB" py3.13 -c "from staticx.cmd import main; main()" "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
 
           file "${EXE}"
@@ -121,18 +113,14 @@ jobs:
           py3.13 -m pip install setuptools SCons --target "$SXPKG" --quiet
           export PATH="$SXPKG/bin:$PATH"
 
-          printf '#!/bin/sh\nexec env "PYTHONPATH=/tmp/sx_pkg:%s" py3.13 /tmp/sx_pkg/bin/scons "$@"\n' \
-            "$PY_PURELIB" > /usr/local/bin/scons
+          printf '#!/bin/sh\nexec env "PYTHONPATH=/tmp/sx_pkg:%s" py3.13 /tmp/sx_pkg/bin/scons "$@"\n' "$PY_PURELIB" > /usr/local/bin/scons
           chmod +x /usr/local/bin/scons
           export PATH="/usr/local/bin:$PATH"
 
-          py3.13 -m pip install staticx patchelf \
-            --target "$SXPKG" \
-            --no-build-isolation \
-            --quiet
+          py3.13 -m pip install staticx patchelf --target "$SXPKG" --no-build-isolation --quiet
 
           EXE="/yt-dlp/dist/${EXE_NAME}"
-          PYTHONPATH="$SXPKG:$PY_PURELIB" "$SXPKG/bin/staticx" "${EXE}" "${EXE}-static"
+          PYTHONPATH="$SXPKG:$PY_PURELIB" py3.13 -c "from staticx.cmd import main; main()" "${EXE}" "${EXE}-static"
           mv "${EXE}-static" "${EXE}"
 
           file "${EXE}"
