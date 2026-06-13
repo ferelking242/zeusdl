@@ -25,26 +25,12 @@ jobs:
           cat > /tmp/build_nuitka.sh << 'INNEREOF'
           #!/bin/bash
           set -ex
-
           cd /yt-dlp
-
-          # Install zeusdl dependencies
-          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || \
-              py3.13 -m pip install -e "." --quiet
-
-          # Install Nuitka and build tools
+          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || py3.13 -m pip install -e "." --quiet
           py3.13 -m pip install nuitka ordered-set zstandard --quiet
           py3.13 -m nuitka --version
-
-          # Build Nuitka onefile with PIE (ET_DYN) flags.
-          # Android PackageManager only extracts ET_DYN .so from jniLibs/ to nativeLibraryDir.
-          # nativeLibraryDir (apk_data_file SELinux context) is the ONLY exec-capable
-          # location on Android 10+. Nuitka extracts Python libs via dlopen() not
-          # execve() — so extraction to cacheDir (app_data_file) is SELinux-allowed.
           mkdir -p /yt-dlp/dist
-
-          CFLAGS="-fPIE" LDFLAGS="-pie" \
-          py3.13 -m nuitka \
+          CFLAGS="-fPIE" LDFLAGS="-pie" py3.13 -m nuitka \
               --onefile \
               --output-dir=/yt-dlp/dist \
               --output-filename="${EXE_NAME}" \
@@ -52,13 +38,10 @@ jobs:
               --lto=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
-
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
           INNEREOF
-
           chmod +x /tmp/build_nuitka.sh
-
           docker run --rm \
             --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
@@ -66,21 +49,16 @@ jobs:
             -e EXE_NAME="zeusdl-android-arm64" \
             ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
             bash /build_nuitka.sh
-
           sudo chmod -R a+r dist/
 
-      - name: Verify — PIE (ET_DYN) required for Android jniLibs
+      - name: Verify PIE (ET_DYN) — mandatory for Android jniLibs
         working-directory: zeusdl/zeusdl
         run: |
-          ELF_TYPE=$(python3 -c "
-import struct
-with open('dist/zeusdl-android-arm64', 'rb') as f:
-    f.seek(16)
-    print(struct.unpack('<H', f.read(2))[0])
-")
-          echo "ELF e_type=${ELF_TYPE} (2=ET_EXEC, 3=ET_DYN)"
-          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN"; exit 1)
-          echo "OK — arm64 is PIE (ET_DYN) — ready for Android jniLibs"
+          # e_type bytes 16-17 little-endian: ET_DYN=0x0003 → xxd = "0300"
+          ELF_TYPE=$(dd if=dist/zeusdl-android-arm64 bs=1 skip=16 count=2 2>/dev/null | xxd -p)
+          echo "ELF e_type=0x${ELF_TYPE} (ET_DYN=0x0300 required for Android)"
+          [ "${ELF_TYPE}" = "0300" ] || { echo "ERROR: not PIE/ET_DYN — rebuild with Nuitka PIE"; exit 1; }
+          echo "OK: arm64 is PIE/ET_DYN — will be installed to nativeLibraryDir"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -101,19 +79,12 @@ with open('dist/zeusdl-android-arm64', 'rb') as f:
           cat > /tmp/build_nuitka.sh << 'INNEREOF'
           #!/bin/bash
           set -ex
-
           cd /yt-dlp
-
-          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || \
-              py3.13 -m pip install -e "." --quiet
-
+          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || py3.13 -m pip install -e "." --quiet
           py3.13 -m pip install nuitka ordered-set zstandard --quiet
           py3.13 -m nuitka --version
-
           mkdir -p /yt-dlp/dist
-
-          CFLAGS="-fPIE" LDFLAGS="-pie" \
-          py3.13 -m nuitka \
+          CFLAGS="-fPIE" LDFLAGS="-pie" py3.13 -m nuitka \
               --onefile \
               --output-dir=/yt-dlp/dist \
               --output-filename="${EXE_NAME}" \
@@ -121,13 +92,10 @@ with open('dist/zeusdl-android-arm64', 'rb') as f:
               --lto=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
-
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
           INNEREOF
-
           chmod +x /tmp/build_nuitka.sh
-
           docker run --rm \
             --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
@@ -135,21 +103,15 @@ with open('dist/zeusdl-android-arm64', 'rb') as f:
             -e EXE_NAME="zeusdl-android-x86_64" \
             ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
             bash /build_nuitka.sh
-
           sudo chmod -R a+r dist/
 
-      - name: Verify — PIE (ET_DYN) required for Android jniLibs
+      - name: Verify PIE (ET_DYN) — mandatory for Android jniLibs
         working-directory: zeusdl/zeusdl
         run: |
-          ELF_TYPE=$(python3 -c "
-import struct
-with open('dist/zeusdl-android-x86_64', 'rb') as f:
-    f.seek(16)
-    print(struct.unpack('<H', f.read(2))[0])
-")
-          echo "ELF e_type=${ELF_TYPE} (2=ET_EXEC, 3=ET_DYN)"
-          [ "${ELF_TYPE}" = "3" ] || (echo "ERROR: not PIE/ET_DYN"; exit 1)
-          echo "OK — x86_64 is PIE (ET_DYN) — ready for Android jniLibs"
+          ELF_TYPE=$(dd if=dist/zeusdl-android-x86_64 bs=1 skip=16 count=2 2>/dev/null | xxd -p)
+          echo "ELF e_type=0x${ELF_TYPE} (ET_DYN=0x0300 required for Android)"
+          [ "${ELF_TYPE}" = "0300" ] || { echo "ERROR: not PIE/ET_DYN — rebuild with Nuitka PIE"; exit 1; }
+          echo "OK: x86_64 is PIE/ET_DYN — will be installed to nativeLibraryDir"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -294,7 +256,7 @@ with open('dist/zeusdl-android-x86_64', 'rb') as f:
             ## ZeusDL — ${{ steps.tag.outputs.tag }}
 
             ### Android — Binaires 100% Statiques
-            Compilés avec **musl Python 3.13 + Nuitka**.
+            Compilés avec **musl Python 3.13 + Nuitka PIE**.
             Binaires PIE (ET_DYN) — exec garanti via nativeLibraryDir sur Android 10+.
             Compatible Android 5.0+ (API 21+).
 
