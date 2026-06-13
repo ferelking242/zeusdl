@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  # ─── arm64-v8a (native ARM64 runner) ─────────────────────────────────────────
+  # ─── arm64-v8a ────────────────────────────────────────────────────────────────
   build-arm64:
     name: Android arm64-v8a
     runs-on: ubuntu-24.04-arm
@@ -23,6 +23,8 @@ jobs:
         working-directory: zeusdl/zeusdl
         run: |
           mkdir -p dist
+          # chmod first so the volume-mounted script is executable
+          chmod +x bundle/docker/linux/build.sh
           docker run --rm \
             -v "$(pwd):/yt-dlp" \
             -e EXE_NAME="zeusdl-android-arm64" \
@@ -32,7 +34,7 @@ jobs:
             -e REQUIREMENTS="musllinux-aarch64" \
             -e SKIP_ONEDIR_BUILD="1" \
             ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
-            /yt-dlp/bundle/docker/linux/build.sh
+            bash /yt-dlp/bundle/docker/linux/build.sh
 
       - name: Apply staticx — embed musl linker → fully static
         working-directory: zeusdl/zeusdl
@@ -46,11 +48,9 @@ jobs:
       - name: Verify — no dynamic interpreter
         working-directory: zeusdl/zeusdl
         run: |
-          # Should print "statically linked" or no INTERP segment
-          readelf -l dist/zeusdl-android-arm64 | grep -E 'INTERP|static' || true
-          # Must NOT reference musl linker
           ! strings dist/zeusdl-android-arm64 | grep -q 'ld-musl' || \
             (echo "ERROR: musl linker still referenced" && exit 1)
+          echo "OK — binary is fully static"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -58,7 +58,7 @@ jobs:
           name: zeusdl-android-arm64
           path: zeusdl/zeusdl/dist/zeusdl-android-arm64
 
-  # ─── x86_64 (standard runner) ────────────────────────────────────────────────
+  # ─── x86_64 ───────────────────────────────────────────────────────────────────
   build-x86_64:
     name: Android x86_64
     runs-on: ubuntu-24.04
@@ -69,6 +69,7 @@ jobs:
         working-directory: zeusdl/zeusdl
         run: |
           mkdir -p dist
+          chmod +x bundle/docker/linux/build.sh
           docker run --rm \
             -v "$(pwd):/yt-dlp" \
             -e EXE_NAME="zeusdl-android-x86_64" \
@@ -78,7 +79,7 @@ jobs:
             -e REQUIREMENTS="musllinux-x86_64" \
             -e SKIP_ONEDIR_BUILD="1" \
             ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
-            /yt-dlp/bundle/docker/linux/build.sh
+            bash /yt-dlp/bundle/docker/linux/build.sh
 
       - name: Apply staticx — embed musl linker → fully static
         working-directory: zeusdl/zeusdl
@@ -94,6 +95,7 @@ jobs:
         run: |
           ! strings dist/zeusdl-android-x86_64 | grep -q 'ld-musl' || \
             (echo "ERROR: musl linker still referenced" && exit 1)
+          echo "OK — binary is fully static"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -101,7 +103,7 @@ jobs:
           name: zeusdl-android-x86_64
           path: zeusdl/zeusdl/dist/zeusdl-android-x86_64
 
-  # ─── Create GitHub Release ────────────────────────────────────────────────────
+  # ─── Publish Release ──────────────────────────────────────────────────────────
   release:
     name: Publish Release
     needs: [build-arm64, build-x86_64]
@@ -139,14 +141,10 @@ jobs:
             Le linker musl est **embarqué dans le binaire** — aucune dépendance externe.
             Compatible Android 5.0+ (API 21+), arm64-v8a et x86_64.
 
-            | Fichier | Architecture | Usage |
-            |---------|-------------|-------|
-            | `zeusdl-android-arm64` | arm64-v8a | Quasi tous les appareils modernes |
-            | `zeusdl-android-x86_64` | x86_64 | Émulateurs, Chromebooks x86 |
-
-            ### Intégration Watchtower (jniLibs)
-            Ces binaires sont packagés automatiquement en `lib{name}.so` via le pipeline
-            Watchtower et copiés dans `android/app/src/main/jniLibs/`.
+            | Fichier | Architecture |
+            |---------|-------------|
+            | `zeusdl-android-arm64` | arm64-v8a (quasi tous les appareils modernes) |
+            | `zeusdl-android-x86_64` | x86_64 (émulateurs, Chromebooks x86) |
           files: |
             dist/zeusdl-android-arm64
             dist/zeusdl-android-x86_64
