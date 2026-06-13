@@ -23,9 +23,9 @@ jobs:
         working-directory: zeusdl/zeusdl
         run: |
           mkdir -p dist
-          # chmod first so the volume-mounted script is executable
           chmod +x bundle/docker/linux/build.sh
           docker run --rm \
+            --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
             -e EXE_NAME="zeusdl-android-arm64" \
             -e CHANNEL="stable" \
@@ -71,6 +71,7 @@ jobs:
           mkdir -p dist
           chmod +x bundle/docker/linux/build.sh
           docker run --rm \
+            --workdir /yt-dlp \
             -v "$(pwd):/yt-dlp" \
             -e EXE_NAME="zeusdl-android-x86_64" \
             -e CHANNEL="stable" \
