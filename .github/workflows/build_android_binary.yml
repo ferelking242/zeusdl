@@ -1,0 +1,153 @@
+name: Build Android Binaries (Static)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. 2026.06.13)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── arm64-v8a (native ARM64 runner) ─────────────────────────────────────────
+  build-arm64:
+    name: Android arm64-v8a
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside musllinux Docker (aarch64)
+        working-directory: zeusdl/zeusdl
+        run: |
+          mkdir -p dist
+          docker run --rm \
+            -v "$(pwd):/yt-dlp" \
+            -e EXE_NAME="zeusdl-android-arm64" \
+            -e CHANNEL="stable" \
+            -e ORIGIN="ferelking242/zeusdl" \
+            -e VERSION="${{ inputs.tag || github.run_number }}" \
+            -e REQUIREMENTS="musllinux-aarch64" \
+            -e SKIP_ONEDIR_BUILD="1" \
+            ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
+            /yt-dlp/bundle/docker/linux/build.sh
+
+      - name: Apply staticx — embed musl linker → fully static
+        working-directory: zeusdl/zeusdl
+        run: |
+          pip install --quiet "staticx>=0.14.1" patchelf
+          staticx dist/zeusdl-android-arm64 dist/zeusdl-android-arm64-static
+          mv dist/zeusdl-android-arm64-static dist/zeusdl-android-arm64
+          file dist/zeusdl-android-arm64
+          ls -lh dist/zeusdl-android-arm64
+
+      - name: Verify — no dynamic interpreter
+        working-directory: zeusdl/zeusdl
+        run: |
+          # Should print "statically linked" or no INTERP segment
+          readelf -l dist/zeusdl-android-arm64 | grep -E 'INTERP|static' || true
+          # Must NOT reference musl linker
+          ! strings dist/zeusdl-android-arm64 | grep -q 'ld-musl' || \
+            (echo "ERROR: musl linker still referenced" && exit 1)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeusdl-android-arm64
+          path: zeusdl/zeusdl/dist/zeusdl-android-arm64
+
+  # ─── x86_64 (standard runner) ────────────────────────────────────────────────
+  build-x86_64:
+    name: Android x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside musllinux Docker (x86_64)
+        working-directory: zeusdl/zeusdl
+        run: |
+          mkdir -p dist
+          docker run --rm \
+            -v "$(pwd):/yt-dlp" \
+            -e EXE_NAME="zeusdl-android-x86_64" \
+            -e CHANNEL="stable" \
+            -e ORIGIN="ferelking242/zeusdl" \
+            -e VERSION="${{ inputs.tag || github.run_number }}" \
+            -e REQUIREMENTS="musllinux-x86_64" \
+            -e SKIP_ONEDIR_BUILD="1" \
+            ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
+            /yt-dlp/bundle/docker/linux/build.sh
+
+      - name: Apply staticx — embed musl linker → fully static
+        working-directory: zeusdl/zeusdl
+        run: |
+          pip install --quiet "staticx>=0.14.1" patchelf
+          staticx dist/zeusdl-android-x86_64 dist/zeusdl-android-x86_64-static
+          mv dist/zeusdl-android-x86_64-static dist/zeusdl-android-x86_64
+          file dist/zeusdl-android-x86_64
+          ls -lh dist/zeusdl-android-x86_64
+
+      - name: Verify — no dynamic interpreter
+        working-directory: zeusdl/zeusdl
+        run: |
+          ! strings dist/zeusdl-android-x86_64 | grep -q 'ld-musl' || \
+            (echo "ERROR: musl linker still referenced" && exit 1)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeusdl-android-x86_64
+          path: zeusdl/zeusdl/dist/zeusdl-android-x86_64
+
+  # ─── Create GitHub Release ────────────────────────────────────────────────────
+  release:
+    name: Publish Release
+    needs: [build-arm64, build-x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute SHA-256 checksums
+        run: |
+          cd dist
+          sha256sum zeusdl-android-arm64 zeusdl-android-x86_64 | tee SHA256SUMS.txt
+
+      - name: Compute tag name
+        id: tag
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="$(date -u '+%Y.%m.%d')"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "ZeusDL Android — ${{ steps.tag.outputs.tag }}"
+          prerelease: false
+          body: |
+            ## ZeusDL Android — Binaires 100% Statiques
+
+            Compilés avec **musl Python 3.13 + PyInstaller + staticx**.
+            Le linker musl est **embarqué dans le binaire** — aucune dépendance externe.
+            Compatible Android 5.0+ (API 21+), arm64-v8a et x86_64.
+
+            | Fichier | Architecture | Usage |
+            |---------|-------------|-------|
+            | `zeusdl-android-arm64` | arm64-v8a | Quasi tous les appareils modernes |
+            | `zeusdl-android-x86_64` | x86_64 | Émulateurs, Chromebooks x86 |
+
+            ### Intégration Watchtower (jniLibs)
+            Ces binaires sont packagés automatiquement en `lib{name}.so` via le pipeline
+            Watchtower et copiés dans `android/app/src/main/jniLibs/`.
+          files: |
+            dist/zeusdl-android-arm64
+            dist/zeusdl-android-x86_64
+            dist/SHA256SUMS.txt
