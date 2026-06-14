@@ -51,6 +51,8 @@ jobs:
           cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
           echo "Static lib OK:"
           ls -lh /opt/static-python/lib/libpython3.13.a
+          # Python is dynamically linked against libpython3.13.so — add it to search path
+          export LD_LIBRARY_PATH=/opt/static-python/lib:${LD_LIBRARY_PATH}
           # ── 2. Bootstrap pip ────────────────────────────────────────────────────
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
           /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
@@ -141,6 +143,8 @@ jobs:
           cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
           echo "Static lib OK:"
           ls -lh /opt/static-python/lib/libpython3.13.a
+          # Python is dynamically linked against libpython3.13.so — add it to search path
+          export LD_LIBRARY_PATH=/opt/static-python/lib:${LD_LIBRARY_PATH}
           # ── 2. Bootstrap pip ────────────────────────────────────────────────────
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
           /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
