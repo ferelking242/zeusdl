@@ -73,7 +73,7 @@ jobs:
           [ -f /usr/lib/libssl.a ]    && (cd "${EMBED_DIR}/ssl"    && ar x /usr/lib/libssl.a)
           [ -f /usr/lib/libcrypto.a ] && (cd "${EMBED_DIR}/crypto" && ar x /usr/lib/libcrypto.a)
           [ -f /usr/lib/libintl.a ]   && (cd "${EMBED_DIR}/intl"   && ar x /usr/lib/libintl.a)
-          find "${EMBED_DIR}" -name '*.o' | xargs -r ar rq libpython3.13.a
+          find "${EMBED_DIR}" -name '*.o' | xargs -r ar q libpython3.13.a
           ranlib libpython3.13.a 2>/dev/null || ar s libpython3.13.a
 
           make install
@@ -200,7 +200,7 @@ jobs:
           [ -f /usr/lib/libssl.a ]    && (cd "${EMBED_DIR}/ssl"    && ar x /usr/lib/libssl.a)
           [ -f /usr/lib/libcrypto.a ] && (cd "${EMBED_DIR}/crypto" && ar x /usr/lib/libcrypto.a)
           [ -f /usr/lib/libintl.a ]   && (cd "${EMBED_DIR}/intl"   && ar x /usr/lib/libintl.a)
-          find "${EMBED_DIR}" -name '*.o' | xargs -r ar rq libpython3.13.a
+          find "${EMBED_DIR}" -name '*.o' | xargs -r ar q libpython3.13.a
           ranlib libpython3.13.a 2>/dev/null || ar s libpython3.13.a
 
           make install
