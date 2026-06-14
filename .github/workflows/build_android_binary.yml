@@ -95,13 +95,38 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
 
-          # ── 5. Build static-PIE binary ────────────────────────────────────────
-          # -static-pie: fully static (musl embedded) + ET_DYN (Android-loadable).
-          # OpenSSL + libintl are embedded in libpython3.13.a → no extra LDFLAGS.
+          # ── 4b. Patch certifi to respect SSL_CERT_FILE env var ───────────────
+          # Nuitka compiles certifi.where() into C; at runtime the Watchtower app
+          # sets SSL_CERT_FILE to an extracted cacert.pem in filesDir (writable).
+          # Without this patch, the compiled binary looks for cacert.pem relative
+          # to nativeLibraryDir — read-only, no data files can live there.
+          $PY - << 'PATCHEOF'
+import certifi.core, inspect, re
+src = inspect.getsourcefile(certifi.core)
+with open(src) as f: txt = f.read()
+inject = (
+    '    # ZeusDL/Android: honour SSL_CERT_FILE if set\n'
+    '    import os as _p_os\n'
+    '    _p = _p_os.environ.get("SSL_CERT_FILE")\n'
+    '    if _p and _p_os.path.isfile(_p):\n'
+    '        return _p\n'
+)
+new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
+open(src, 'w').write(new)
+print('certifi patched OK:', src)
+PATCHEOF
+
+          # ── 5. Build static-PIE binary (standalone, no onefile) ──────────────
+          # ROOT CAUSE OF EXIT 139 (SIGSEGV): Nuitka --onefile bootstrap calls
+          # execv() on the extracted inner binary stored in TMPDIR. Android 10+
+          # SELinux neverallow blocks execv() on app_data_file context (cacheDir,
+          # supportDir). The bootstrap error handler crashes → SIGSEGV (139).
+          # FIX: --standalone produces a binary that runs DIRECTLY from
+          # nativeLibraryDir — no extraction, no execv(), no crash.
           mkdir -p /yt-dlp/dist
           CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
-              --onefile \
+              --standalone \
               --static-libpython=yes \
               --output-dir=/yt-dlp/dist \
               --output-filename="${EXE_NAME}" \
@@ -109,6 +134,18 @@ jobs:
               --lto=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
+
+          # Standalone output lives in __main__.dist/; copy flat for the release.
+          cp "/yt-dlp/dist/__main__.dist/${EXE_NAME}" "/yt-dlp/dist/${EXE_NAME}"
+
+          # Package certifi.pem — Watchtower extracts it to filesDir and sets
+          # SSL_CERT_FILE so the compiled certifi.where() returns the right path.
+          if [ -f "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" ]; then
+            cp "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" /yt-dlp/dist/certifi.pem
+          else
+            $PY -c "import certifi,shutil; shutil.copy(certifi.where(),'/yt-dlp/dist/certifi.pem')"
+          fi
+          echo "certifi.pem: $(wc -c < /yt-dlp/dist/certifi.pem) bytes"
 
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
@@ -138,6 +175,12 @@ jobs:
         with:
           name: zeusdl-android-arm64
           path: zeusdl/zeusdl/dist/zeusdl-android-arm64
+
+      - name: Upload certifi.pem artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: certifi
+          path: zeusdl/zeusdl/dist/certifi.pem
 
   # ─── Android x86_64 ───────────────────────────────────────────────────────────
   build-android-x86_64:
@@ -222,13 +265,38 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
 
-          # ── 5. Build static-PIE binary ────────────────────────────────────────
-          # -static-pie: fully static (musl embedded) + ET_DYN (Android-loadable).
-          # OpenSSL + libintl are embedded in libpython3.13.a → no extra LDFLAGS.
+          # ── 4b. Patch certifi to respect SSL_CERT_FILE env var ───────────────
+          # Nuitka compiles certifi.where() into C; at runtime the Watchtower app
+          # sets SSL_CERT_FILE to an extracted cacert.pem in filesDir (writable).
+          # Without this patch, the compiled binary looks for cacert.pem relative
+          # to nativeLibraryDir — read-only, no data files can live there.
+          $PY - << 'PATCHEOF'
+import certifi.core, inspect, re
+src = inspect.getsourcefile(certifi.core)
+with open(src) as f: txt = f.read()
+inject = (
+    '    # ZeusDL/Android: honour SSL_CERT_FILE if set\n'
+    '    import os as _p_os\n'
+    '    _p = _p_os.environ.get("SSL_CERT_FILE")\n'
+    '    if _p and _p_os.path.isfile(_p):\n'
+    '        return _p\n'
+)
+new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
+open(src, 'w').write(new)
+print('certifi patched OK:', src)
+PATCHEOF
+
+          # ── 5. Build static-PIE binary (standalone, no onefile) ──────────────
+          # ROOT CAUSE OF EXIT 139 (SIGSEGV): Nuitka --onefile bootstrap calls
+          # execv() on the extracted inner binary stored in TMPDIR. Android 10+
+          # SELinux neverallow blocks execv() on app_data_file context (cacheDir,
+          # supportDir). The bootstrap error handler crashes → SIGSEGV (139).
+          # FIX: --standalone produces a binary that runs DIRECTLY from
+          # nativeLibraryDir — no extraction, no execv(), no crash.
           mkdir -p /yt-dlp/dist
           CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
-              --onefile \
+              --standalone \
               --static-libpython=yes \
               --output-dir=/yt-dlp/dist \
               --output-filename="${EXE_NAME}" \
@@ -236,6 +304,18 @@ jobs:
               --lto=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
+
+          # Standalone output lives in __main__.dist/; copy flat for the release.
+          cp "/yt-dlp/dist/__main__.dist/${EXE_NAME}" "/yt-dlp/dist/${EXE_NAME}"
+
+          # Package certifi.pem — Watchtower extracts it to filesDir and sets
+          # SSL_CERT_FILE so the compiled certifi.where() returns the right path.
+          if [ -f "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" ]; then
+            cp "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" /yt-dlp/dist/certifi.pem
+          else
+            $PY -c "import certifi,shutil; shutil.copy(certifi.where(),'/yt-dlp/dist/certifi.pem')"
+          fi
+          echo "certifi.pem: $(wc -c < /yt-dlp/dist/certifi.pem) bytes"
 
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
@@ -382,6 +462,7 @@ jobs:
             zeusdl-linux-x64 \
             zeusdl-macos \
             zeusdl-windows-x64.exe \
+            certifi.pem \
             | tee SHA256SUMS.txt
 
       - name: Compute tag name
@@ -428,4 +509,5 @@ jobs:
             dist/zeusdl-linux-x64
             dist/zeusdl-macos
             dist/zeusdl-windows-x64.exe
+            dist/certifi.pem
             dist/SHA256SUMS.txt
