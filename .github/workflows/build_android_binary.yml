@@ -34,14 +34,13 @@ jobs:
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
+          # No CFLAGS/LDFLAGS here — those break ext module linking. Apply only to Nuitka.
           ./configure \
               --prefix=/opt/static-python \
               --enable-shared \
               --with-static-libpython \
               --without-ensurepip \
-              --enable-ipv6 \
-              CFLAGS="-fPIE" \
-              LDFLAGS="-pie"
+              --enable-ipv6
           make -j$(nproc)
           make install
           echo "Static lib OK:"
@@ -56,7 +55,7 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
           # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # -static-pie: link musl AND libpython statically, produce ET_DYN
+          # CFLAGS/LDFLAGS only here, not during Python build
           mkdir -p /yt-dlp/dist
           CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
@@ -119,14 +118,13 @@ jobs:
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
+          # No CFLAGS/LDFLAGS here — those break ext module linking. Apply only to Nuitka.
           ./configure \
               --prefix=/opt/static-python \
               --enable-shared \
               --with-static-libpython \
               --without-ensurepip \
-              --enable-ipv6 \
-              CFLAGS="-fPIE" \
-              LDFLAGS="-pie"
+              --enable-ipv6
           make -j$(nproc)
           make install
           echo "Static lib OK:"
@@ -141,7 +139,7 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
           # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # -static-pie: link musl AND libpython statically, produce ET_DYN
+          # CFLAGS/LDFLAGS only here, not during Python build
           mkdir -p /yt-dlp/dist
           CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
