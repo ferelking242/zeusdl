@@ -19,45 +19,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build PIE binary inside musllinux Docker (aarch64 — Nuitka)
-        working-directory: zeusdl/zeusdl
+      - name: Install musl toolchain + patchelf
         run: |
-          cat > /tmp/build_nuitka.sh << 'INNEREOF'
-          #!/bin/bash
-          set -ex
-          cd /yt-dlp
-          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || py3.13 -m pip install -e "." --quiet
-          py3.13 -m pip install nuitka ordered-set zstandard --quiet
-          py3.13 -m nuitka --version
-          mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-pie -static-libgcc" py3.13 -m nuitka \
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools patchelf binutils
+
+      - name: Download python-build-standalone musl aarch64
+        run: |
+          PBS_TAG="20260610"
+          PBS_FILE="cpython-3.13.14+${PBS_TAG}-aarch64-unknown-linux-musl-install_only.tar.gz"
+          PBS_URL="https://github.com/indygreg/python-build-standalone/releases/download/${PBS_TAG}/${PBS_FILE}"
+          wget -q "$PBS_URL" -O /tmp/pbs-python.tar.gz
+          mkdir -p /opt/pbs-python
+          tar -xf /tmp/pbs-python.tar.gz -C /opt/pbs-python/
+          echo "PBS Python:"
+          /opt/pbs-python/python/bin/python3.13 --version
+          echo "Static lib present:"
+          ls /opt/pbs-python/python/lib/libpython*.a || echo "WARN: no .a — build may fail"
+
+      - name: Build static-PIE binary (aarch64 — Nuitka + musl-gcc)
+        working-directory: zeusdl/zeusdl
+        env:
+          PYTHON: /opt/pbs-python/python/bin/python3.13
+        run: |
+          set -euo pipefail
+          $PYTHON -m pip install -e ".[default]" --quiet 2>/dev/null || $PYTHON -m pip install -e "." --quiet
+          $PYTHON -m pip install nuitka ordered-set zstandard --quiet
+          $PYTHON -m nuitka --version
+          mkdir -p dist
+          CC=musl-gcc CFLAGS="-fPIE" LDFLAGS="-static-pie" \
+          $PYTHON -m nuitka \
               --onefile \
-              --output-dir=/yt-dlp/dist \
-              --output-filename="${EXE_NAME}" \
+              --static-libpython=yes \
+              --output-dir=dist \
+              --output-filename="zeusdl-android-arm64" \
               --assume-yes-for-downloads \
               --lto=yes \
-              --static-libpython=yes \
               --python-flag=no_site \
-              /yt-dlp/zeusdl/__main__.py
-          file /yt-dlp/dist/${EXE_NAME}
-          ls -lh /yt-dlp/dist/${EXE_NAME}
-          # Verify no musl dynamic dep
-          readelf -d /yt-dlp/dist/${EXE_NAME} | grep NEEDED || echo "OK: no dynamic deps"
-          INNEREOF
-          chmod +x /tmp/build_nuitka.sh
-          docker run --rm \
-            --workdir /yt-dlp \
-            -v "$(pwd):/yt-dlp" \
-            -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
-            -e EXE_NAME="zeusdl-android-arm64" \
-            ghcr.io/yt-dlp/musllinux_1_2_aarch64:latest \
-            bash /build_nuitka.sh
-          sudo chmod -R a+r dist/
+              zeusdl/__main__.py
+          file dist/zeusdl-android-arm64
+          ls -lh dist/zeusdl-android-arm64
+          echo "=== Dynamic deps (should be empty for static-PIE) ==="
+          readelf -d dist/zeusdl-android-arm64 | grep NEEDED || echo "OK: no dynamic NEEDED entries"
 
       - name: Verify PIE (ET_DYN) — mandatory for Android jniLibs
         working-directory: zeusdl/zeusdl
         run: |
-          # e_type bytes 16-17 little-endian: ET_DYN=0x0003 → xxd = "0300"
           ELF_TYPE=$(dd if=dist/zeusdl-android-arm64 bs=1 skip=16 count=2 2>/dev/null | xxd -p)
           echo "ELF e_type=0x${ELF_TYPE} (ET_DYN=0x0300 required for Android)"
           [ "${ELF_TYPE}" = "0300" ] || { echo "ERROR: not PIE/ET_DYN — rebuild with Nuitka PIE"; exit 1; }
@@ -76,40 +83,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build PIE binary inside musllinux Docker (x86_64 — Nuitka)
-        working-directory: zeusdl/zeusdl
+      - name: Install musl toolchain + patchelf
         run: |
-          cat > /tmp/build_nuitka.sh << 'INNEREOF'
-          #!/bin/bash
-          set -ex
-          cd /yt-dlp
-          py3.13 -m pip install -e ".[default]" --quiet 2>/dev/null || py3.13 -m pip install -e "." --quiet
-          py3.13 -m pip install nuitka ordered-set zstandard --quiet
-          py3.13 -m nuitka --version
-          mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-pie -static-libgcc" py3.13 -m nuitka \
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools patchelf binutils
+
+      - name: Download python-build-standalone musl x86_64
+        run: |
+          PBS_TAG="20260610"
+          PBS_FILE="cpython-3.13.14+${PBS_TAG}-x86_64-unknown-linux-musl-install_only.tar.gz"
+          PBS_URL="https://github.com/indygreg/python-build-standalone/releases/download/${PBS_TAG}/${PBS_FILE}"
+          wget -q "$PBS_URL" -O /tmp/pbs-python.tar.gz
+          mkdir -p /opt/pbs-python
+          tar -xf /tmp/pbs-python.tar.gz -C /opt/pbs-python/
+          echo "PBS Python:"
+          /opt/pbs-python/python/bin/python3.13 --version
+          echo "Static lib present:"
+          ls /opt/pbs-python/python/lib/libpython*.a || echo "WARN: no .a — build may fail"
+
+      - name: Build static-PIE binary (x86_64 — Nuitka + musl-gcc)
+        working-directory: zeusdl/zeusdl
+        env:
+          PYTHON: /opt/pbs-python/python/bin/python3.13
+        run: |
+          set -euo pipefail
+          $PYTHON -m pip install -e ".[default]" --quiet 2>/dev/null || $PYTHON -m pip install -e "." --quiet
+          $PYTHON -m pip install nuitka ordered-set zstandard --quiet
+          $PYTHON -m nuitka --version
+          mkdir -p dist
+          CC=musl-gcc CFLAGS="-fPIE" LDFLAGS="-static-pie" \
+          $PYTHON -m nuitka \
               --onefile \
-              --output-dir=/yt-dlp/dist \
-              --output-filename="${EXE_NAME}" \
+              --static-libpython=yes \
+              --output-dir=dist \
+              --output-filename="zeusdl-android-x86_64" \
               --assume-yes-for-downloads \
               --lto=yes \
-              --static-libpython=yes \
               --python-flag=no_site \
-              /yt-dlp/zeusdl/__main__.py
-          file /yt-dlp/dist/${EXE_NAME}
-          ls -lh /yt-dlp/dist/${EXE_NAME}
-          # Verify no musl dynamic dep
-          readelf -d /yt-dlp/dist/${EXE_NAME} | grep NEEDED || echo "OK: no dynamic deps"
-          INNEREOF
-          chmod +x /tmp/build_nuitka.sh
-          docker run --rm \
-            --workdir /yt-dlp \
-            -v "$(pwd):/yt-dlp" \
-            -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
-            -e EXE_NAME="zeusdl-android-x86_64" \
-            ghcr.io/yt-dlp/musllinux_1_2_x86_64:latest \
-            bash /build_nuitka.sh
-          sudo chmod -R a+r dist/
+              zeusdl/__main__.py
+          file dist/zeusdl-android-x86_64
+          ls -lh dist/zeusdl-android-x86_64
+          echo "=== Dynamic deps (should be empty for static-PIE) ==="
+          readelf -d dist/zeusdl-android-x86_64 | grep NEEDED || echo "OK: no dynamic NEEDED entries"
 
       - name: Verify PIE (ET_DYN) — mandatory for Android jniLibs
         working-directory: zeusdl/zeusdl
@@ -261,10 +276,10 @@ jobs:
           body: |
             ## ZeusDL — ${{ steps.tag.outputs.tag }}
 
-            ### Android — Binaires 100% Statiques
-            Compilés avec **musl Python 3.13 + Nuitka PIE**.
-            Binaires PIE (ET_DYN) — exec garanti via nativeLibraryDir sur Android 10+.
-            Compatible Android 5.0+ (API 21+).
+            ### Android — Binaires 100% Statiques (musl-static PIE)
+            Compilés avec **python-build-standalone musl 3.13 + Nuitka + musl-gcc `-static-pie`**.
+            Binaires PIE (ET_DYN) sans aucune dépendance dynamique — zéro `libc.musl-*.so` requis.
+            Compatible Android 5.0+ (API 21+), arm64-v8a et x86_64.
 
             | Fichier | Architecture |
             |---------|-------------|
