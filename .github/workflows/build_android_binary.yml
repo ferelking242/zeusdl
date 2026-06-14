@@ -30,16 +30,19 @@ jobs:
           py3.13 -m pip install nuitka ordered-set zstandard --quiet
           py3.13 -m nuitka --version
           mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-pie" py3.13 -m nuitka \
+          CFLAGS="-fPIE" LDFLAGS="-pie -static-libgcc" py3.13 -m nuitka \
               --onefile \
               --output-dir=/yt-dlp/dist \
               --output-filename="${EXE_NAME}" \
               --assume-yes-for-downloads \
               --lto=yes \
+              --static-libpython=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
+          # Verify no musl dynamic dep
+          readelf -d /yt-dlp/dist/${EXE_NAME} | grep NEEDED || echo "OK: no dynamic deps"
           INNEREOF
           chmod +x /tmp/build_nuitka.sh
           docker run --rm \
@@ -47,7 +50,7 @@ jobs:
             -v "$(pwd):/yt-dlp" \
             -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
             -e EXE_NAME="zeusdl-android-arm64" \
-            ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
+            ghcr.io/yt-dlp/musllinux_1_2_aarch64:latest \
             bash /build_nuitka.sh
           sudo chmod -R a+r dist/
 
@@ -84,16 +87,19 @@ jobs:
           py3.13 -m pip install nuitka ordered-set zstandard --quiet
           py3.13 -m nuitka --version
           mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-pie" py3.13 -m nuitka \
+          CFLAGS="-fPIE" LDFLAGS="-pie -static-libgcc" py3.13 -m nuitka \
               --onefile \
               --output-dir=/yt-dlp/dist \
               --output-filename="${EXE_NAME}" \
               --assume-yes-for-downloads \
               --lto=yes \
+              --static-libpython=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
+          # Verify no musl dynamic dep
+          readelf -d /yt-dlp/dist/${EXE_NAME} | grep NEEDED || echo "OK: no dynamic deps"
           INNEREOF
           chmod +x /tmp/build_nuitka.sh
           docker run --rm \
@@ -101,7 +107,7 @@ jobs:
             -v "$(pwd):/yt-dlp" \
             -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
             -e EXE_NAME="zeusdl-android-x86_64" \
-            ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
+            ghcr.io/yt-dlp/musllinux_1_2_x86_64:latest \
             bash /build_nuitka.sh
           sudo chmod -R a+r dist/
 
