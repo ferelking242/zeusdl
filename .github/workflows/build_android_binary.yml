@@ -26,6 +26,9 @@ jobs:
           #!/bin/sh
           set -ex
           PYTHON_VERSION=3.13.3
+          # ── 0. Install OpenSSL dev + static libs ────────────────────────────────
+          # Required so Python's _ssl module compiles and pip can use HTTPS
+          apk add openssl-dev openssl-libs-static --no-cache --quiet
           # ── 1. Compile Python with --enable-shared ──────────────────────────────
           # --enable-shared: ext modules link against libpython3.13.so (no linker errors)
           # --with-static-libpython is unreliable on Alpine musl; we create the .a manually below
@@ -34,6 +37,11 @@ jobs:
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
+          # Build _ssl as a BUILTIN module linked against static OpenSSL.
+          # This ensures SSL works in the final static binary without libssl.so at runtime.
+          # -Wl,-Bstatic/-Bdynamic: link OpenSSL statically but keep rest dynamic during Python build.
+          printf '_ssl _ssl.c -I/usr/include/openssl -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic\n' \
+              > Modules/Setup.local
           # No CFLAGS/LDFLAGS — they break ext module linking. Apply only to Nuitka.
           ./configure \
               --prefix=/opt/static-python \
@@ -42,7 +50,7 @@ jobs:
               --enable-ipv6
           make -j$(nproc)
           # Manually create libpython3.13.a from the -fPIC objects produced by --enable-shared.
-          # -fPIC objects are valid for static-PIE linking (PIE is a stricter subset of PIC).
+          # _ssl.o is included here (builtin), its OpenSSL deps resolved at Nuitka link time.
           ar rcs libpython3.13.a \
             $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
               | grep -v '_test\|/test\|Programs/')
@@ -63,9 +71,12 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
           # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE
+          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE.
+          # OpenSSL added to LDFLAGS to resolve _ssl builtin symbols from libpython3.13.a.
+          # --start-group/--end-group handles circular deps between libssl and libcrypto.
           mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-static-pie" \
+          CFLAGS="-fPIE" \
+          LDFLAGS="-static-pie -Wl,--start-group /usr/lib/libssl.a /usr/lib/libcrypto.a -Wl,--end-group" \
           $PY -m nuitka \
               --onefile \
               --static-libpython=yes \
@@ -118,6 +129,9 @@ jobs:
           #!/bin/sh
           set -ex
           PYTHON_VERSION=3.13.3
+          # ── 0. Install OpenSSL dev + static libs ────────────────────────────────
+          # Required so Python's _ssl module compiles and pip can use HTTPS
+          apk add openssl-dev openssl-libs-static --no-cache --quiet
           # ── 1. Compile Python with --enable-shared ──────────────────────────────
           # --enable-shared: ext modules link against libpython3.13.so (no linker errors)
           # --with-static-libpython is unreliable on Alpine musl; we create the .a manually below
@@ -126,6 +140,11 @@ jobs:
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
+          # Build _ssl as a BUILTIN module linked against static OpenSSL.
+          # This ensures SSL works in the final static binary without libssl.so at runtime.
+          # -Wl,-Bstatic/-Bdynamic: link OpenSSL statically but keep rest dynamic during Python build.
+          printf '_ssl _ssl.c -I/usr/include/openssl -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic\n' \
+              > Modules/Setup.local
           # No CFLAGS/LDFLAGS — they break ext module linking. Apply only to Nuitka.
           ./configure \
               --prefix=/opt/static-python \
@@ -134,7 +153,7 @@ jobs:
               --enable-ipv6
           make -j$(nproc)
           # Manually create libpython3.13.a from the -fPIC objects produced by --enable-shared.
-          # -fPIC objects are valid for static-PIE linking (PIE is a stricter subset of PIC).
+          # _ssl.o is included here (builtin), its OpenSSL deps resolved at Nuitka link time.
           ar rcs libpython3.13.a \
             $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
               | grep -v '_test\|/test\|Programs/')
@@ -155,9 +174,12 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
           # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE
+          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE.
+          # OpenSSL added to LDFLAGS to resolve _ssl builtin symbols from libpython3.13.a.
+          # --start-group/--end-group handles circular deps between libssl and libcrypto.
           mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-static-pie" \
+          CFLAGS="-fPIE" \
+          LDFLAGS="-static-pie -Wl,--start-group /usr/lib/libssl.a /usr/lib/libcrypto.a -Wl,--end-group" \
           $PY -m nuitka \
               --onefile \
               --static-libpython=yes \
