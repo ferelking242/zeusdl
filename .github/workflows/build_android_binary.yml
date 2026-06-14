@@ -26,25 +26,31 @@ jobs:
           #!/bin/sh
           set -ex
           PYTHON_VERSION=3.13.3
-          # ── 1. Compile Python with --enable-shared --with-static-libpython ──────
-          # --enable-shared: ext modules can link against libpython3.13.so (no link errors)
-          # --with-static-libpython: also produces libpython3.13.a (needed by Nuitka)
+          # ── 1. Compile Python with --enable-shared ──────────────────────────────
+          # --enable-shared: ext modules link against libpython3.13.so (no linker errors)
+          # --with-static-libpython is unreliable on Alpine musl; we create the .a manually below
           cd /tmp
           curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
-          # No CFLAGS/LDFLAGS here — those break ext module linking. Apply only to Nuitka.
+          # No CFLAGS/LDFLAGS — they break ext module linking. Apply only to Nuitka.
           ./configure \
               --prefix=/opt/static-python \
               --enable-shared \
-              --with-static-libpython \
               --without-ensurepip \
               --enable-ipv6
           make -j$(nproc)
+          # Manually create libpython3.13.a from the -fPIC objects produced by --enable-shared.
+          # -fPIC objects are valid for static-PIE linking (PIE is a stricter subset of PIC).
+          ar rcs libpython3.13.a \
+            $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
+              | grep -v '_test\|/test\|Programs/')
           make install
+          # Copy the manually-built static archive to the install prefix
+          cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
           echo "Static lib OK:"
-          ls /opt/static-python/lib/libpython*.a
+          ls -lh /opt/static-python/lib/libpython3.13.a
           # ── 2. Bootstrap pip ────────────────────────────────────────────────────
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
           /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
@@ -55,7 +61,7 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
           # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # CFLAGS/LDFLAGS only here, not during Python build
+          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE
           mkdir -p /yt-dlp/dist
           CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
@@ -110,25 +116,31 @@ jobs:
           #!/bin/sh
           set -ex
           PYTHON_VERSION=3.13.3
-          # ── 1. Compile Python with --enable-shared --with-static-libpython ──────
-          # --enable-shared: ext modules can link against libpython3.13.so (no link errors)
-          # --with-static-libpython: also produces libpython3.13.a (needed by Nuitka)
+          # ── 1. Compile Python with --enable-shared ──────────────────────────────
+          # --enable-shared: ext modules link against libpython3.13.so (no linker errors)
+          # --with-static-libpython is unreliable on Alpine musl; we create the .a manually below
           cd /tmp
           curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
-          # No CFLAGS/LDFLAGS here — those break ext module linking. Apply only to Nuitka.
+          # No CFLAGS/LDFLAGS — they break ext module linking. Apply only to Nuitka.
           ./configure \
               --prefix=/opt/static-python \
               --enable-shared \
-              --with-static-libpython \
               --without-ensurepip \
               --enable-ipv6
           make -j$(nproc)
+          # Manually create libpython3.13.a from the -fPIC objects produced by --enable-shared.
+          # -fPIC objects are valid for static-PIE linking (PIE is a stricter subset of PIC).
+          ar rcs libpython3.13.a \
+            $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
+              | grep -v '_test\|/test\|Programs/')
           make install
+          # Copy the manually-built static archive to the install prefix
+          cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
           echo "Static lib OK:"
-          ls /opt/static-python/lib/libpython*.a
+          ls -lh /opt/static-python/lib/libpython3.13.a
           # ── 2. Bootstrap pip ────────────────────────────────────────────────────
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
           /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
@@ -139,7 +151,7 @@ jobs:
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
           # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # CFLAGS/LDFLAGS only here, not during Python build
+          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE
           mkdir -p /yt-dlp/dist
           CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
