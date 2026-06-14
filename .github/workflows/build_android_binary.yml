@@ -26,57 +26,80 @@ jobs:
           #!/bin/sh
           set -ex
           PYTHON_VERSION=3.13.3
-          # ── 0. Install OpenSSL dev + static libs ────────────────────────────────
-          # Required so Python's _ssl module compiles and pip can use HTTPS
+
+          # ── 0. Install static libs needed for builtin modules ──────────────────
+          # openssl-libs-static: libssl.a + libcrypto.a  → _ssl builtin
+          # gettext-static: libintl.a                    → _localemodule builtin
           apk add openssl-dev openssl-libs-static --no-cache --quiet
-          # ── 1. Compile Python with --enable-shared ──────────────────────────────
-          # --enable-shared: ext modules link against libpython3.13.so (no linker errors)
-          # --with-static-libpython is unreliable on Alpine musl; we create the .a manually below
+          apk add gettext-static --no-cache --quiet 2>/dev/null || true
+
+          # ── 1. Compile Python with _ssl as a BUILTIN module ────────────────────
+          # Builtin = compiled into libpython3.13.a (not a separate .so).
+          # Required so Nuitka --static-libpython=yes can include SSL in the final binary.
           cd /tmp
           curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
-          # Build _ssl as a BUILTIN module linked against static OpenSSL.
-          # This ensures SSL works in the final static binary without libssl.so at runtime.
-          # -Wl,-Bstatic/-Bdynamic: link OpenSSL statically but keep rest dynamic during Python build.
-          printf '_ssl _ssl.c -I/usr/include/openssl -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic\n' \
-              > Modules/Setup.local
-          # No CFLAGS/LDFLAGS — they break ext module linking. Apply only to Nuitka.
+
+          # Setup.local: _ssl as builtin, linked against OpenSSL (dynamic during Python
+          # shared-lib build — that is fine; _ssl.o's OpenSSL refs are resolved below).
+          printf '_ssl _ssl.c -I/usr/include/openssl -lssl -lcrypto\n' > Modules/Setup.local
+
+          # No CFLAGS/LDFLAGS here — they break ext module linking. Only used in Nuitka step.
           ./configure \
               --prefix=/opt/static-python \
               --enable-shared \
               --without-ensurepip \
               --enable-ipv6
+
           make -j$(nproc)
-          # Manually create libpython3.13.a from the -fPIC objects produced by --enable-shared.
-          # _ssl.o is included here (builtin), its OpenSSL deps resolved at Nuitka link time.
+
+          # ── 2. Build libpython3.13.a with OpenSSL + libintl EMBEDDED ──────────
+          # KEY FIX: Nuitka's linker command puts -lssl/-lcrypto BEFORE libpython3.13.a.
+          # In static linking, archives are scanned left-to-right: when libssl.a is
+          # scanned first there are no SSL refs yet; when libpython3.13.a is scanned
+          # later the SSL refs are undefined (libssl.a already past). Embedding the
+          # OpenSSL and libintl objects directly into libpython3.13.a avoids all
+          # ordering issues — everything is in ONE archive.
+
           ar rcs libpython3.13.a \
-            $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
-              | grep -v '_test\|/test\|Programs/')
+              $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
+                | grep -v '_test\|/test\|Programs/')
+
+          # Append static OpenSSL + libintl objects (separate dirs to avoid name clash)
+          EMBED_DIR=/tmp/static-embed
+          mkdir -p "${EMBED_DIR}/ssl" "${EMBED_DIR}/crypto" "${EMBED_DIR}/intl"
+          [ -f /usr/lib/libssl.a ]    && (cd "${EMBED_DIR}/ssl"    && ar x /usr/lib/libssl.a)
+          [ -f /usr/lib/libcrypto.a ] && (cd "${EMBED_DIR}/crypto" && ar x /usr/lib/libcrypto.a)
+          [ -f /usr/lib/libintl.a ]   && (cd "${EMBED_DIR}/intl"   && ar x /usr/lib/libintl.a)
+          find "${EMBED_DIR}" -name '*.o' | xargs -r ar rq libpython3.13.a
+          ranlib libpython3.13.a 2>/dev/null || ar s libpython3.13.a
+
           make install
-          # Copy the manually-built static archive to the install prefix
           cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
-          echo "Static lib OK:"
-          ls -lh /opt/static-python/lib/libpython3.13.a
-          # Python is dynamically linked against libpython3.13.so — add it to search path
+          echo "Static lib OK: $(ls -lh /opt/static-python/lib/libpython3.13.a)"
+
+          # libpython3.13.so needed at runtime for pip (dynamic Python binary)
           export LD_LIBRARY_PATH=/opt/static-python/lib:${LD_LIBRARY_PATH}
-          # ── 2. Bootstrap pip ────────────────────────────────────────────────────
+
+          # ── 3. Bootstrap pip ─────────────────────────────────────────────────
+          # _ssl is builtin → libpython3.13.so has SSL → pip can connect via HTTPS
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
           /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
-          # ── 3. Install ZeusDL deps + Nuitka ─────────────────────────────────────
+
+          # ── 4. Install ZeusDL deps + Nuitka ──────────────────────────────────
           cd /yt-dlp
           PY=/opt/static-python/bin/python3.13
           $PY -m pip install -e ".[default]" --quiet 2>/dev/null || $PY -m pip install -e "." --quiet
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
-          # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE.
-          # OpenSSL added to LDFLAGS to resolve _ssl builtin symbols from libpython3.13.a.
-          # --start-group/--end-group handles circular deps between libssl and libcrypto.
+
+          # ── 5. Build static-PIE binary ────────────────────────────────────────
+          # -static-pie: fully static (musl embedded) + ET_DYN (Android-loadable).
+          # OpenSSL + libintl are embedded in libpython3.13.a → no extra LDFLAGS.
           mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" \
-          LDFLAGS="-static-pie -Wl,--start-group /usr/lib/libssl.a /usr/lib/libcrypto.a -Wl,--end-group" \
+          CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
               --onefile \
               --static-libpython=yes \
@@ -86,6 +109,7 @@ jobs:
               --lto=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
+
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
           echo "=== Dynamic deps (MUST be empty for Android Bionic) ==="
@@ -129,57 +153,80 @@ jobs:
           #!/bin/sh
           set -ex
           PYTHON_VERSION=3.13.3
-          # ── 0. Install OpenSSL dev + static libs ────────────────────────────────
-          # Required so Python's _ssl module compiles and pip can use HTTPS
+
+          # ── 0. Install static libs needed for builtin modules ──────────────────
+          # openssl-libs-static: libssl.a + libcrypto.a  → _ssl builtin
+          # gettext-static: libintl.a                    → _localemodule builtin
           apk add openssl-dev openssl-libs-static --no-cache --quiet
-          # ── 1. Compile Python with --enable-shared ──────────────────────────────
-          # --enable-shared: ext modules link against libpython3.13.so (no linker errors)
-          # --with-static-libpython is unreliable on Alpine musl; we create the .a manually below
+          apk add gettext-static --no-cache --quiet 2>/dev/null || true
+
+          # ── 1. Compile Python with _ssl as a BUILTIN module ────────────────────
+          # Builtin = compiled into libpython3.13.a (not a separate .so).
+          # Required so Nuitka --static-libpython=yes can include SSL in the final binary.
           cd /tmp
           curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
                -o Python.tar.xz
           tar xf Python.tar.xz
           cd /tmp/Python-${PYTHON_VERSION}
-          # Build _ssl as a BUILTIN module linked against static OpenSSL.
-          # This ensures SSL works in the final static binary without libssl.so at runtime.
-          # -Wl,-Bstatic/-Bdynamic: link OpenSSL statically but keep rest dynamic during Python build.
-          printf '_ssl _ssl.c -I/usr/include/openssl -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic\n' \
-              > Modules/Setup.local
-          # No CFLAGS/LDFLAGS — they break ext module linking. Apply only to Nuitka.
+
+          # Setup.local: _ssl as builtin, linked against OpenSSL (dynamic during Python
+          # shared-lib build — that is fine; _ssl.o's OpenSSL refs are resolved below).
+          printf '_ssl _ssl.c -I/usr/include/openssl -lssl -lcrypto\n' > Modules/Setup.local
+
+          # No CFLAGS/LDFLAGS here — they break ext module linking. Only used in Nuitka step.
           ./configure \
               --prefix=/opt/static-python \
               --enable-shared \
               --without-ensurepip \
               --enable-ipv6
+
           make -j$(nproc)
-          # Manually create libpython3.13.a from the -fPIC objects produced by --enable-shared.
-          # _ssl.o is included here (builtin), its OpenSSL deps resolved at Nuitka link time.
+
+          # ── 2. Build libpython3.13.a with OpenSSL + libintl EMBEDDED ──────────
+          # KEY FIX: Nuitka's linker command puts -lssl/-lcrypto BEFORE libpython3.13.a.
+          # In static linking, archives are scanned left-to-right: when libssl.a is
+          # scanned first there are no SSL refs yet; when libpython3.13.a is scanned
+          # later the SSL refs are undefined (libssl.a already past). Embedding the
+          # OpenSSL and libintl objects directly into libpython3.13.a avoids all
+          # ordering issues — everything is in ONE archive.
+
           ar rcs libpython3.13.a \
-            $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
-              | grep -v '_test\|/test\|Programs/')
+              $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
+                | grep -v '_test\|/test\|Programs/')
+
+          # Append static OpenSSL + libintl objects (separate dirs to avoid name clash)
+          EMBED_DIR=/tmp/static-embed
+          mkdir -p "${EMBED_DIR}/ssl" "${EMBED_DIR}/crypto" "${EMBED_DIR}/intl"
+          [ -f /usr/lib/libssl.a ]    && (cd "${EMBED_DIR}/ssl"    && ar x /usr/lib/libssl.a)
+          [ -f /usr/lib/libcrypto.a ] && (cd "${EMBED_DIR}/crypto" && ar x /usr/lib/libcrypto.a)
+          [ -f /usr/lib/libintl.a ]   && (cd "${EMBED_DIR}/intl"   && ar x /usr/lib/libintl.a)
+          find "${EMBED_DIR}" -name '*.o' | xargs -r ar rq libpython3.13.a
+          ranlib libpython3.13.a 2>/dev/null || ar s libpython3.13.a
+
           make install
-          # Copy the manually-built static archive to the install prefix
           cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
-          echo "Static lib OK:"
-          ls -lh /opt/static-python/lib/libpython3.13.a
-          # Python is dynamically linked against libpython3.13.so — add it to search path
+          echo "Static lib OK: $(ls -lh /opt/static-python/lib/libpython3.13.a)"
+
+          # libpython3.13.so needed at runtime for pip (dynamic Python binary)
           export LD_LIBRARY_PATH=/opt/static-python/lib:${LD_LIBRARY_PATH}
-          # ── 2. Bootstrap pip ────────────────────────────────────────────────────
+
+          # ── 3. Bootstrap pip ─────────────────────────────────────────────────
+          # _ssl is builtin → libpython3.13.so has SSL → pip can connect via HTTPS
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
           /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
-          # ── 3. Install ZeusDL deps + Nuitka ─────────────────────────────────────
+
+          # ── 4. Install ZeusDL deps + Nuitka ──────────────────────────────────
           cd /yt-dlp
           PY=/opt/static-python/bin/python3.13
           $PY -m pip install -e ".[default]" --quiet 2>/dev/null || $PY -m pip install -e "." --quiet
           $PY -m pip install nuitka ordered-set zstandard --quiet
           $PY -m nuitka --version
-          # ── 4. Build static-PIE binary ───────────────────────────────────────────
-          # CFLAGS/LDFLAGS only here — -fPIE + -static-pie produce a fully static PIE.
-          # OpenSSL added to LDFLAGS to resolve _ssl builtin symbols from libpython3.13.a.
-          # --start-group/--end-group handles circular deps between libssl and libcrypto.
+
+          # ── 5. Build static-PIE binary ────────────────────────────────────────
+          # -static-pie: fully static (musl embedded) + ET_DYN (Android-loadable).
+          # OpenSSL + libintl are embedded in libpython3.13.a → no extra LDFLAGS.
           mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" \
-          LDFLAGS="-static-pie -Wl,--start-group /usr/lib/libssl.a /usr/lib/libcrypto.a -Wl,--end-group" \
+          CFLAGS="-fPIE" LDFLAGS="-static-pie" \
           $PY -m nuitka \
               --onefile \
               --static-libpython=yes \
@@ -189,6 +236,7 @@ jobs:
               --lto=yes \
               --python-flag=no_site \
               /yt-dlp/zeusdl/__main__.py
+
           file /yt-dlp/dist/${EXE_NAME}
           ls -lh /yt-dlp/dist/${EXE_NAME}
           echo "=== Dynamic deps (MUST be empty for Android Bionic) ==="
