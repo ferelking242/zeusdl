@@ -101,19 +101,19 @@ jobs:
           # Without this patch, the compiled binary looks for cacert.pem relative
           # to nativeLibraryDir — read-only, no data files can live there.
           $PY - << 'PATCHEOF'
-                    import certifi.core, inspect, re
-                    src = inspect.getsourcefile(certifi.core)
-                    with open(src) as f: txt = f.read()
-                    inject = (
+          import certifi.core, inspect, re
+          src = inspect.getsourcefile(certifi.core)
+          with open(src) as f: txt = f.read()
+          inject = (
               '    # ZeusDL/Android: honour SSL_CERT_FILE if set\n'
               '    import os as _p_os\n'
               '    _p = _p_os.environ.get("SSL_CERT_FILE")\n'
               '    if _p and _p_os.path.isfile(_p):\n'
               '        return _p\n'
-                    )
-                    new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
-                    open(src, 'w').write(new)
-                    print('certifi patched OK:', src)
+          )
+          new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
+          open(src, 'w').write(new)
+          print('certifi patched OK:', src)
           PATCHEOF
 
           # ── 5. Build static-PIE binary (standalone, no onefile) ──────────────
@@ -271,19 +271,19 @@ jobs:
           # Without this patch, the compiled binary looks for cacert.pem relative
           # to nativeLibraryDir — read-only, no data files can live there.
           $PY - << 'PATCHEOF'
-                    import certifi.core, inspect, re
-                    src = inspect.getsourcefile(certifi.core)
-                    with open(src) as f: txt = f.read()
-                    inject = (
+          import certifi.core, inspect, re
+          src = inspect.getsourcefile(certifi.core)
+          with open(src) as f: txt = f.read()
+          inject = (
               '    # ZeusDL/Android: honour SSL_CERT_FILE if set\n'
               '    import os as _p_os\n'
               '    _p = _p_os.environ.get("SSL_CERT_FILE")\n'
               '    if _p and _p_os.path.isfile(_p):\n'
               '        return _p\n'
-                    )
-                    new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
-                    open(src, 'w').write(new)
-                    print('certifi patched OK:', src)
+          )
+          new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
+          open(src, 'w').write(new)
+          print('certifi patched OK:', src)
           PATCHEOF
 
           # ── 5. Build static-PIE binary (standalone, no onefile) ──────────────
