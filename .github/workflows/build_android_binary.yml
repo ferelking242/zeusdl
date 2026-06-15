@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. 2026.06.13)"
+        description: "Release tag (e.g. 2026.06.14)"
         required: false
         default: ""
 
@@ -12,342 +12,47 @@ permissions:
   contents: write
 
 jobs:
-  # ─── Android arm64-v8a ────────────────────────────────────────────────────────
-  build-android-arm64:
-    name: Android arm64-v8a (PIE)
-    runs-on: ubuntu-24.04-arm
+  # ─── Android : package Python pur (pas de Nuitka) ────────────────────────
+  build-android-python:
+    name: Android — ZeusDL Python package
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build static Python + static-PIE ZeusDL (aarch64 — inside musllinux Docker)
-        working-directory: zeusdl/zeusdl
-        run: |
-          cat > /tmp/build_nuitka.sh << 'INNEREOF'
-          #!/bin/sh
-          set -ex
-          PYTHON_VERSION=3.13.3
-
-          # ── 0. Install static libs needed for builtin modules ──────────────────
-          # openssl-libs-static: libssl.a + libcrypto.a  → _ssl builtin
-          # gettext-static: libintl.a                    → _localemodule builtin
-          apk add openssl-dev openssl-libs-static --no-cache --quiet
-          apk add gettext-static --no-cache --quiet 2>/dev/null || true
-
-          # ── 1. Compile Python with _ssl as a BUILTIN module ────────────────────
-          # Builtin = compiled into libpython3.13.a (not a separate .so).
-          # Required so Nuitka --static-libpython=yes can include SSL in the final binary.
-          cd /tmp
-          curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
-               -o Python.tar.xz
-          tar xf Python.tar.xz
-          cd /tmp/Python-${PYTHON_VERSION}
-
-          # Setup.local: _ssl as builtin, linked against OpenSSL (dynamic during Python
-          # shared-lib build — that is fine; _ssl.o's OpenSSL refs are resolved below).
-          printf '_ssl _ssl.c -I/usr/include/openssl -lssl -lcrypto\n' > Modules/Setup.local
-
-          # No CFLAGS/LDFLAGS here — they break ext module linking. Only used in Nuitka step.
-          ./configure \
-              --prefix=/opt/static-python \
-              --enable-shared \
-              --without-ensurepip \
-              --enable-ipv6
-
-          make -j$(nproc)
-
-          # ── 2. Build libpython3.13.a with OpenSSL + libintl EMBEDDED ──────────
-          # KEY FIX: Nuitka's linker command puts -lssl/-lcrypto BEFORE libpython3.13.a.
-          # In static linking, archives are scanned left-to-right: when libssl.a is
-          # scanned first there are no SSL refs yet; when libpython3.13.a is scanned
-          # later the SSL refs are undefined (libssl.a already past). Embedding the
-          # OpenSSL and libintl objects directly into libpython3.13.a avoids all
-          # ordering issues — everything is in ONE archive.
-
-          ar rcs libpython3.13.a \
-              $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
-                | grep -v '_test\|/test\|Programs/')
-
-          # Append static OpenSSL + libintl objects (separate dirs to avoid name clash)
-          EMBED_DIR=/tmp/static-embed
-          mkdir -p "${EMBED_DIR}/ssl" "${EMBED_DIR}/crypto" "${EMBED_DIR}/intl"
-          [ -f /usr/lib/libssl.a ]    && (cd "${EMBED_DIR}/ssl"    && ar x /usr/lib/libssl.a)
-          [ -f /usr/lib/libcrypto.a ] && (cd "${EMBED_DIR}/crypto" && ar x /usr/lib/libcrypto.a)
-          [ -f /usr/lib/libintl.a ]   && (cd "${EMBED_DIR}/intl"   && ar x /usr/lib/libintl.a)
-          find "${EMBED_DIR}" -name '*.o' | xargs -r ar q libpython3.13.a
-          ranlib libpython3.13.a 2>/dev/null || ar s libpython3.13.a
-
-          make install
-          cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
-          echo "Static lib OK: $(ls -lh /opt/static-python/lib/libpython3.13.a)"
-
-          # libpython3.13.so needed at runtime for pip (dynamic Python binary)
-          export LD_LIBRARY_PATH=/opt/static-python/lib:${LD_LIBRARY_PATH}
-
-          # ── 3. Bootstrap pip ─────────────────────────────────────────────────
-          # _ssl is builtin → libpython3.13.so has SSL → pip can connect via HTTPS
-          curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-          /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
-
-          # ── 4. Install ZeusDL deps + Nuitka ──────────────────────────────────
-          cd /yt-dlp
-          PY=/opt/static-python/bin/python3.13
-          $PY -m pip install -e ".[default]" --quiet 2>/dev/null || $PY -m pip install -e "." --quiet
-          $PY -m pip install nuitka ordered-set zstandard --quiet
-          $PY -m nuitka --version
-
-          # ── 4b. Patch certifi to respect SSL_CERT_FILE env var ───────────────
-          # Nuitka compiles certifi.where() into C; at runtime the Watchtower app
-          # sets SSL_CERT_FILE to an extracted cacert.pem in filesDir (writable).
-          # Without this patch, the compiled binary looks for cacert.pem relative
-          # to nativeLibraryDir — read-only, no data files can live there.
-          $PY - << 'PATCHEOF'
-          import certifi.core, inspect, re
-          src = inspect.getsourcefile(certifi.core)
-          with open(src) as f: txt = f.read()
-          inject = (
-              '    # ZeusDL/Android: honour SSL_CERT_FILE if set\n'
-              '    import os as _p_os\n'
-              '    _p = _p_os.environ.get("SSL_CERT_FILE")\n'
-              '    if _p and _p_os.path.isfile(_p):\n'
-              '        return _p\n'
-          )
-          new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
-          open(src, 'w').write(new)
-          print('certifi patched OK:', src)
-          PATCHEOF
-
-          # ── 5. Build static-PIE binary (standalone, no onefile) ──────────────
-          # ROOT CAUSE OF EXIT 139 (SIGSEGV): Nuitka --onefile bootstrap calls
-          # execv() on the extracted inner binary stored in TMPDIR. Android 10+
-          # SELinux neverallow blocks execv() on app_data_file context (cacheDir,
-          # supportDir). The bootstrap error handler crashes → SIGSEGV (139).
-          # FIX: --standalone produces a binary that runs DIRECTLY from
-          # nativeLibraryDir — no extraction, no execv(), no crash.
-          mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-static-pie" \
-          $PY -m nuitka \
-              --standalone \
-              --static-libpython=yes \
-              --output-dir=/yt-dlp/dist \
-              --output-filename="${EXE_NAME}" \
-              --assume-yes-for-downloads \
-              --lto=yes \
-              --python-flag=no_site \
-              /yt-dlp/zeusdl/__main__.py
-
-          # Standalone output lives in __main__.dist/; copy flat for the release.
-          cp "/yt-dlp/dist/__main__.dist/${EXE_NAME}" "/yt-dlp/dist/${EXE_NAME}"
-
-          # Package certifi.pem — Watchtower extracts it to filesDir and sets
-          # SSL_CERT_FILE so the compiled certifi.where() returns the right path.
-          if [ -f "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" ]; then
-            cp "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" /yt-dlp/dist/certifi.pem
-          else
-            $PY -c "import certifi,shutil; shutil.copy(certifi.where(),'/yt-dlp/dist/certifi.pem')"
-          fi
-          echo "certifi.pem: $(wc -c < /yt-dlp/dist/certifi.pem) bytes"
-
-          file /yt-dlp/dist/${EXE_NAME}
-          ls -lh /yt-dlp/dist/${EXE_NAME}
-          echo "=== Dynamic deps (MUST be empty for Android Bionic) ==="
-          readelf -d /yt-dlp/dist/${EXE_NAME} | grep NEEDED || echo "OK: no dynamic NEEDED entries"
-          INNEREOF
-          chmod +x /tmp/build_nuitka.sh
-          docker run --rm \
-            --workdir /yt-dlp \
-            -v "$(pwd):/yt-dlp" \
-            -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
-            -e EXE_NAME="zeusdl-android-arm64" \
-            ghcr.io/yt-dlp/musllinux_1_2_aarch64-shared:latest \
-            sh /build_nuitka.sh
-          sudo chmod -R a+r dist/
-
-      - name: Verify PIE (ET_DYN) — mandatory for Android jniLibs
-        working-directory: zeusdl/zeusdl
-        run: |
-          ELF_TYPE=$(dd if=dist/zeusdl-android-arm64 bs=1 skip=16 count=2 2>/dev/null | xxd -p)
-          echo "ELF e_type=0x${ELF_TYPE} (ET_DYN=0x0300 required for Android)"
-          [ "${ELF_TYPE}" = "0300" ] || { echo "ERROR: not PIE/ET_DYN"; exit 1; }
-          echo "OK: arm64 is PIE/ET_DYN"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: zeusdl-android-arm64
-          path: zeusdl/zeusdl/dist/zeusdl-android-arm64
+          python-version: "3.12"
 
-      - name: Upload certifi.pem artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: certifi
-          path: zeusdl/zeusdl/dist/certifi.pem
-
-  # ─── Android x86_64 ───────────────────────────────────────────────────────────
-  build-android-x86_64:
-    name: Android x86_64 (PIE)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build static Python + static-PIE ZeusDL (x86_64 — inside musllinux Docker)
-        working-directory: zeusdl/zeusdl
+      - name: Package ZeusDL as Python zip
         run: |
-          cat > /tmp/build_nuitka.sh << 'INNEREOF'
-          #!/bin/sh
-          set -ex
-          PYTHON_VERSION=3.13.3
+          set -euo pipefail
+          cd zeusdl/zeusdl
+          # Package le package Python zeusdl/ (architecture-independent)
+          # Le zip contient : zeusdl/__init__.py, zeusdl/__main__.py, etc.
+          # Watchtower l'extrait vers filesDir/ → filesDir/zeusdl/__main__.py
+          zip -r ../../zeusdl.zip zeusdl/ \
+            --include "*.py" "*.json" "*.pem" "*.key" "*.txt"
+          cd ../../
+          echo "=== Package info ==="
+          python3 -c "
+          import zipfile, sys
+          z = zipfile.ZipFile('zeusdl.zip')
+          names = z.namelist()
+          print(f'Fichiers: {len(names)}')
+          has_main = any('__main__.py' in n for n in names)
+          has_init = any('__init__.py' in n for n in names)
+          print(f'__main__.py: {has_main}')
+          print(f'__init__.py: {has_init}')
+          print('Extraits (sample):', names[:5])
+          "
+          echo "Taille : $(du -sh zeusdl.zip)"
 
-          # ── 0. Install static libs needed for builtin modules ──────────────────
-          # openssl-libs-static: libssl.a + libcrypto.a  → _ssl builtin
-          # gettext-static: libintl.a                    → _localemodule builtin
-          apk add openssl-dev openssl-libs-static --no-cache --quiet
-          apk add gettext-static --no-cache --quiet 2>/dev/null || true
-
-          # ── 1. Compile Python with _ssl as a BUILTIN module ────────────────────
-          # Builtin = compiled into libpython3.13.a (not a separate .so).
-          # Required so Nuitka --static-libpython=yes can include SSL in the final binary.
-          cd /tmp
-          curl -fsSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" \
-               -o Python.tar.xz
-          tar xf Python.tar.xz
-          cd /tmp/Python-${PYTHON_VERSION}
-
-          # Setup.local: _ssl as builtin, linked against OpenSSL (dynamic during Python
-          # shared-lib build — that is fine; _ssl.o's OpenSSL refs are resolved below).
-          printf '_ssl _ssl.c -I/usr/include/openssl -lssl -lcrypto\n' > Modules/Setup.local
-
-          # No CFLAGS/LDFLAGS here — they break ext module linking. Only used in Nuitka step.
-          ./configure \
-              --prefix=/opt/static-python \
-              --enable-shared \
-              --without-ensurepip \
-              --enable-ipv6
-
-          make -j$(nproc)
-
-          # ── 2. Build libpython3.13.a with OpenSSL + libintl EMBEDDED ──────────
-          # KEY FIX: Nuitka's linker command puts -lssl/-lcrypto BEFORE libpython3.13.a.
-          # In static linking, archives are scanned left-to-right: when libssl.a is
-          # scanned first there are no SSL refs yet; when libpython3.13.a is scanned
-          # later the SSL refs are undefined (libssl.a already past). Embedding the
-          # OpenSSL and libintl objects directly into libpython3.13.a avoids all
-          # ordering issues — everything is in ONE archive.
-
-          ar rcs libpython3.13.a \
-              $(find Objects Python Parser Modules -name '*.o' 2>/dev/null \
-                | grep -v '_test\|/test\|Programs/')
-
-          # Append static OpenSSL + libintl objects (separate dirs to avoid name clash)
-          EMBED_DIR=/tmp/static-embed
-          mkdir -p "${EMBED_DIR}/ssl" "${EMBED_DIR}/crypto" "${EMBED_DIR}/intl"
-          [ -f /usr/lib/libssl.a ]    && (cd "${EMBED_DIR}/ssl"    && ar x /usr/lib/libssl.a)
-          [ -f /usr/lib/libcrypto.a ] && (cd "${EMBED_DIR}/crypto" && ar x /usr/lib/libcrypto.a)
-          [ -f /usr/lib/libintl.a ]   && (cd "${EMBED_DIR}/intl"   && ar x /usr/lib/libintl.a)
-          find "${EMBED_DIR}" -name '*.o' | xargs -r ar q libpython3.13.a
-          ranlib libpython3.13.a 2>/dev/null || ar s libpython3.13.a
-
-          make install
-          cp libpython3.13.a /opt/static-python/lib/libpython3.13.a
-          echo "Static lib OK: $(ls -lh /opt/static-python/lib/libpython3.13.a)"
-
-          # libpython3.13.so needed at runtime for pip (dynamic Python binary)
-          export LD_LIBRARY_PATH=/opt/static-python/lib:${LD_LIBRARY_PATH}
-
-          # ── 3. Bootstrap pip ─────────────────────────────────────────────────
-          # _ssl is builtin → libpython3.13.so has SSL → pip can connect via HTTPS
-          curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-          /opt/static-python/bin/python3.13 /tmp/get-pip.py --quiet
-
-          # ── 4. Install ZeusDL deps + Nuitka ──────────────────────────────────
-          cd /yt-dlp
-          PY=/opt/static-python/bin/python3.13
-          $PY -m pip install -e ".[default]" --quiet 2>/dev/null || $PY -m pip install -e "." --quiet
-          $PY -m pip install nuitka ordered-set zstandard --quiet
-          $PY -m nuitka --version
-
-          # ── 4b. Patch certifi to respect SSL_CERT_FILE env var ───────────────
-          # Nuitka compiles certifi.where() into C; at runtime the Watchtower app
-          # sets SSL_CERT_FILE to an extracted cacert.pem in filesDir (writable).
-          # Without this patch, the compiled binary looks for cacert.pem relative
-          # to nativeLibraryDir — read-only, no data files can live there.
-          $PY - << 'PATCHEOF'
-          import certifi.core, inspect, re
-          src = inspect.getsourcefile(certifi.core)
-          with open(src) as f: txt = f.read()
-          inject = (
-              '    # ZeusDL/Android: honour SSL_CERT_FILE if set\n'
-              '    import os as _p_os\n'
-              '    _p = _p_os.environ.get("SSL_CERT_FILE")\n'
-              '    if _p and _p_os.path.isfile(_p):\n'
-              '        return _p\n'
-          )
-          new = re.sub(r'(def where\([^)]*\)[^:]*:\n)', r'\1' + inject, txt, count=1)
-          open(src, 'w').write(new)
-          print('certifi patched OK:', src)
-          PATCHEOF
-
-          # ── 5. Build static-PIE binary (standalone, no onefile) ──────────────
-          # ROOT CAUSE OF EXIT 139 (SIGSEGV): Nuitka --onefile bootstrap calls
-          # execv() on the extracted inner binary stored in TMPDIR. Android 10+
-          # SELinux neverallow blocks execv() on app_data_file context (cacheDir,
-          # supportDir). The bootstrap error handler crashes → SIGSEGV (139).
-          # FIX: --standalone produces a binary that runs DIRECTLY from
-          # nativeLibraryDir — no extraction, no execv(), no crash.
-          mkdir -p /yt-dlp/dist
-          CFLAGS="-fPIE" LDFLAGS="-static-pie" \
-          $PY -m nuitka \
-              --standalone \
-              --static-libpython=yes \
-              --output-dir=/yt-dlp/dist \
-              --output-filename="${EXE_NAME}" \
-              --assume-yes-for-downloads \
-              --lto=yes \
-              --python-flag=no_site \
-              /yt-dlp/zeusdl/__main__.py
-
-          # Standalone output lives in __main__.dist/; copy flat for the release.
-          cp "/yt-dlp/dist/__main__.dist/${EXE_NAME}" "/yt-dlp/dist/${EXE_NAME}"
-
-          # Package certifi.pem — Watchtower extracts it to filesDir and sets
-          # SSL_CERT_FILE so the compiled certifi.where() returns the right path.
-          if [ -f "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" ]; then
-            cp "/yt-dlp/dist/__main__.dist/certifi/cacert.pem" /yt-dlp/dist/certifi.pem
-          else
-            $PY -c "import certifi,shutil; shutil.copy(certifi.where(),'/yt-dlp/dist/certifi.pem')"
-          fi
-          echo "certifi.pem: $(wc -c < /yt-dlp/dist/certifi.pem) bytes"
-
-          file /yt-dlp/dist/${EXE_NAME}
-          ls -lh /yt-dlp/dist/${EXE_NAME}
-          echo "=== Dynamic deps (MUST be empty for Android Bionic) ==="
-          readelf -d /yt-dlp/dist/${EXE_NAME} | grep NEEDED || echo "OK: no dynamic NEEDED entries"
-          INNEREOF
-          chmod +x /tmp/build_nuitka.sh
-          docker run --rm \
-            --workdir /yt-dlp \
-            -v "$(pwd):/yt-dlp" \
-            -v "/tmp/build_nuitka.sh:/build_nuitka.sh:ro" \
-            -e EXE_NAME="zeusdl-android-x86_64" \
-            ghcr.io/yt-dlp/musllinux_1_2_x86_64-shared:latest \
-            sh /build_nuitka.sh
-          sudo chmod -R a+r dist/
-
-      - name: Verify PIE (ET_DYN) — mandatory for Android jniLibs
-        working-directory: zeusdl/zeusdl
-        run: |
-          ELF_TYPE=$(dd if=dist/zeusdl-android-x86_64 bs=1 skip=16 count=2 2>/dev/null | xxd -p)
-          echo "ELF e_type=0x${ELF_TYPE} (ET_DYN=0x0300 required for Android)"
-          [ "${ELF_TYPE}" = "0300" ] || { echo "ERROR: not PIE/ET_DYN"; exit 1; }
-          echo "OK: x86_64 is PIE/ET_DYN"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: zeusdl-android-x86_64
-          path: zeusdl/zeusdl/dist/zeusdl-android-x86_64
+          name: zeusdl-python-package
+          path: zeusdl.zip
 
-
-  # ─── Linux x64 ────────────────────────────────────────────────────────────────
+  # ─── Linux x64 ────────────────────────────────────────────────────────────
   build-linux-x64:
     name: Linux x64
     runs-on: ubuntu-latest
@@ -371,13 +76,12 @@ jobs:
           file dist/zeusdl-linux-x64
           ls -lh dist/zeusdl-linux-x64
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: zeusdl-linux-x64
           path: zeusdl/zeusdl/dist/zeusdl-linux-x64
 
-  # ─── macOS ────────────────────────────────────────────────────────────────────
+  # ─── macOS ────────────────────────────────────────────────────────────────
   build-macos:
     name: macOS (arm64 + x64)
     runs-on: macos-latest
@@ -401,13 +105,12 @@ jobs:
           file dist/zeusdl-macos
           ls -lh dist/zeusdl-macos
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: zeusdl-macos
           path: zeusdl/zeusdl/dist/zeusdl-macos
 
-  # ─── Windows x64 ──────────────────────────────────────────────────────────────
+  # ─── Windows x64 ──────────────────────────────────────────────────────────
   build-windows-x64:
     name: Windows x64
     runs-on: windows-latest
@@ -431,18 +134,16 @@ jobs:
             --strip `
             zeusdl/__main__.py
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: zeusdl-windows-x64
           path: zeusdl/zeusdl/dist/zeusdl-windows-x64.exe
 
-  # ─── Publish Release ──────────────────────────────────────────────────────────
+  # ─── Publish Release ──────────────────────────────────────────────────────
   release:
     name: Publish Release
     needs:
-      - build-android-arm64
-      - build-android-x86_64
+      - build-android-python
       - build-linux-x64
       - build-macos
       - build-windows-x64
@@ -457,12 +158,10 @@ jobs:
         run: |
           cd dist
           sha256sum \
-            zeusdl-android-arm64 \
-            zeusdl-android-x86_64 \
+            zeusdl.zip \
             zeusdl-linux-x64 \
             zeusdl-macos \
             zeusdl-windows-x64.exe \
-            certifi.pem \
             | tee SHA256SUMS.txt
 
       - name: Compute tag name
@@ -483,31 +182,22 @@ jobs:
           body: |
             ## ZeusDL — ${{ steps.tag.outputs.tag }}
 
-            ### Android — Binaires 100% Statiques (musl-static-PIE)
-            Compilés avec **Python 3.13 musl-static (source) + Nuitka `--static-libpython=yes -static-pie`**.
-            Aucune dépendance dynamique — zéro `libc.musl-*.so` requis.
-            Compatible Android 5.0+ (API 21+).
+            ### Android
+            `zeusdl.zip` — package Python pur, exécuté via Python Bionic ARM64
+            (fourni par Watchtower via youtubedl-android).
+            Mise à jour automatique sans réinstaller l'APK.
 
-            | Fichier | Architecture |
-            |---------|-------------|
-            | `zeusdl-android-arm64` | Android arm64-v8a (99% des appareils modernes) |
-            | `zeusdl-android-x86_64` | Android x86_64 (émulateurs, Chromebooks x86) |
-
-            ### PC — Binaires Natifs
-            Compilés avec **Python 3.12 + PyInstaller**.
-
+            ### PC — Binaires Natifs (PyInstaller)
             | Fichier | Plateforme |
             |---------|-----------|
             | `zeusdl-linux-x64` | Linux x86_64 |
             | `zeusdl-macos` | macOS (Apple Silicon + Intel) |
             | `zeusdl-windows-x64.exe` | Windows x64 |
 
-            `SHA256SUMS.txt` — vérification d'intégrité de tous les binaires.
+            `SHA256SUMS.txt` — vérification d'intégrité.
           files: |
-            dist/zeusdl-android-arm64
-            dist/zeusdl-android-x86_64
+            dist/zeusdl.zip
             dist/zeusdl-linux-x64
             dist/zeusdl-macos
             dist/zeusdl-windows-x64.exe
-            dist/certifi.pem
             dist/SHA256SUMS.txt
