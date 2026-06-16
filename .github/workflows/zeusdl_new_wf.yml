@@ -1,0 +1,152 @@
+name: ZeusDL — Android Bundle Autosuffisant
+
+  on:
+    push:
+      tags:
+        - 'v*'
+    workflow_dispatch:
+      inputs:
+        tag:
+          description: "Release tag (ex: 2026.06.14)"
+          required: false
+          default: ""
+
+  permissions:
+    contents: write
+
+  jobs:
+    build-android-bundle:
+      name: Android — Bundle Python autosuffisant (ARM64)
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - uses: actions/setup-python@v5
+          with:
+            python-version: "3.11"
+
+        - name: Build zeusdl.zip avec deps vendorées ARM64
+          run: |
+            set -euo pipefail
+
+            # ── Répertoire de staging ──────────────────────────────────────────
+            STAGING="$(mktemp -d)/bundle"
+            mkdir -p "$STAGING"
+
+            # ── 1. Code source ZeusDL ─────────────────────────────────────────
+            # Le package Python est dans zeusdl/zeusdl/zeusdl/
+            cd zeusdl/zeusdl
+
+            # Copier le package complet dans staging/zeusdl/
+            cp -r zeusdl/ "$STAGING/zeusdl"
+
+            # __main__.py à la racine du zip (point d'entrée pour python3 zeusdl.zip)
+            cat > "$STAGING/__main__.py" << 'PYEOF'
+            #!/usr/bin/env python3
+            # Point d'entrée Watchtower — délègue au package zeusdl
+            import sys, os
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from zeusdl import __main__ as _m
+            if hasattr(_m, 'main'):
+                _m.main()
+            else:
+                # Fallback : exécute __main__.py du package directement
+                exec(open(os.path.join(os.path.dirname(__file__), 'zeusdl', '__main__.py')).read())
+            PYEOF
+
+            # ── 2. Vendoring des dépendances Python pour ARM64 ────────────────
+            echo "Vendoring deps pour manylinux aarch64 (Python 3.11)..."
+            pip install \
+              requests \
+              certifi \
+              urllib3 \
+              websockets \
+              mutagen \
+              charset-normalizer \
+              idna \
+              --target "$STAGING" \
+              --platform manylinux2014_aarch64 \
+              --only-binary=:all: \
+              --python-version 3.11 \
+              --implementation cp \
+              --no-compile \
+              -q 2>&1 | tail -10 || {
+              echo "⚠️  Certaines wheels manylinux non disponibles, fallback host..."
+              pip install \
+                requests certifi urllib3 websockets mutagen charset-normalizer idna \
+                --target "$STAGING" \
+                --no-compile \
+                -q 2>&1 | tail -5
+            }
+
+            # Tenter d'ajouter yt-dlp vendoré (optionnel, peut être absent en ARM64 pur)
+            pip install yt-dlp \
+              --target "$STAGING" \
+              --platform manylinux2014_aarch64 \
+              --only-binary=:all: \
+              --python-version 3.11 \
+              --implementation cp \
+              --no-compile \
+              -q 2>&1 | tail -5 || echo "⚠️  yt-dlp wheel ARM64 non disponible (le package zeusdl embarque sa propre implémentation)"
+
+            # ── 3. Nettoyage (réduire taille) ────────────────────────────────
+            find "$STAGING" -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
+            find "$STAGING" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+            find "$STAGING" -name "*.pth" -delete 2>/dev/null || true
+            find "$STAGING" -name "*.pyc" -delete 2>/dev/null || true
+
+            # ── 4. Créer zeusdl.zip ──────────────────────────────────────────
+            cd "$STAGING"
+            zip -qr "$OLDPWD/../../zeusdl.zip" .
+            cd -
+
+            # ── 5. Vérification ──────────────────────────────────────────────
+            echo "=== Structure zeusdl.zip ==="
+            python3 - << 'PYEOF'
+            import zipfile
+            z = zipfile.ZipFile('zeusdl.zip')
+            names = z.namelist()
+            print(f'Fichiers total : {len(names)}')
+            print(f'__main__.py    : {any(n == "__main__.py" for n in names)}')
+            print(f'zeusdl/        : {any(n.startswith("zeusdl/") for n in names)}')
+            print(f'requests/      : {any(n.startswith("requests/") for n in names)}')
+            print(f'certifi/       : {any(n.startswith("certifi/") for n in names)}')
+            top = sorted({n.split("/")[0] for n in names if "/" in n or "." in n})[:15]
+            print("Top-level:", top)
+            PYEOF
+            echo "Taille : $(du -sh zeusdl.zip)"
+
+        - name: Upload artifact
+          uses: actions/upload-artifact@v4
+          with:
+            name: zeusdl-android-bundle
+            path: zeusdl.zip
+
+        - name: Compute tag
+          id: tag
+          run: |
+            TAG="${{ inputs.tag }}"
+            [ -z "$TAG" ] && TAG="$(date -u '+%Y.%m.%d')"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+        - name: Create GitHub Release
+          if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: ${{ steps.tag.outputs.tag }}
+            name: "ZeusDL Bundle — ${{ steps.tag.outputs.tag }}"
+            prerelease: false
+            body: |
+              ## ZeusDL Bundle Android — ${{ steps.tag.outputs.tag }}
+
+              ### Contenu de zeusdl.zip
+              - **`__main__.py`** — point d'entrée Python
+              - **`zeusdl/`** — package ZeusDL complet (fork yt-dlp)
+              - **`requests/`, `certifi/`, `urllib3/`, `websockets/`, `mutagen/`** — dépendances vendorées ARM64
+              - **Zéro `libpython.so`** — le runtime Python est dans l'APK Watchtower
+
+              ### Architecture
+              Dépendances compilées pour `manylinux2014_aarch64` (Python 3.11 ARM64).
+              Fallback host-arch si wheel ARM64 indisponible.
+            files: zeusdl.zip
+  
