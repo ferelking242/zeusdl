@@ -116,6 +116,8 @@ print('Top-level:', top[:15])
 print('✅ Structure valide')
 PYEOF
           echo "Taille : $(du -sh zeusdl.zip)"
+            echo "=== Top 5 entries in zeusdl.zip ==="
+            unzip -l zeusdl.zip | head -5
 
       - uses: actions/upload-artifact@v4
         with:
